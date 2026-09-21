@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Alpha404</title>
+<meta name="theme-color" content="#0A0E12">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="boot-screen">
+  <div class="boot-lines mono" id="boot-lines"></div>
+</div>
+
+<div id="lock-screen" style="display:none">
+  <div class="lock-box">
+    <div class="mark" style="margin-bottom:18px">ALPHA<span>404</span></div>
+    <div class="sub" style="margin-bottom:18px">Enter PIN to continue</div>
+    <input type="password" inputmode="numeric" id="lock-input" maxlength="8" autocomplete="off" placeholder="••••">
+    <div id="lock-error" class="lock-error"></div>
+    <button class="btn primary" id="lock-submit" style="margin-top:14px;width:100%">Unlock</button>
+  </div>
+</div>
+
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand">
+      <div class="mark">ALPHA<span>404</span></div>
+      <div class="sub">offline relationship graph</div>
+    </div>
+    <div class="search-wrap">
+      <input type="search" id="search" placeholder="Search people or tags… (⌘K)" autocomplete="off">
+    </div>
+    <div id="person-list"></div>
+    <div class="legend" id="legend"></div>
+    <div class="sidebar-actions">
+      <button class="btn ghost icon-btn" id="settings-btn" title="Settings">⚙</button>
+      <button class="btn ghost" id="export-btn">Export</button>
+      <button class="btn ghost" id="import-btn">Import</button>
+      <button class="btn primary" id="add-person-btn">+ Person</button>
+    </div>
+  </aside>
+
+  <main id="graph-wrap">
+    <button id="menu-btn" aria-label="Open list">☰</button>
+    <div id="graph-toolbar">
+      <div class="hud-tag mono">NODES <b id="node-count">0</b> &nbsp;·&nbsp; LINKS <b id="link-count">0</b></div>
+      <div id="graph-controls">
+        <button class="btn ghost" id="link-mode-btn" title="Connect two people">Connect</button>
+        <button class="btn ghost" id="reset-view-btn" title="Reset view">Reset view</button>
+      </div>
+    </div>
+    <canvas id="graph"></canvas>
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+    <div id="empty-state">
+      <h2>No one mapped yet</h2>
+      <p>Add the first person to start building the graph. Everything stays on this device.</p>
+    </div>
+    <button class="version-tag mono" id="version-tag">v1.1.0 · what's new</button>
+  </main>
+</div>
+
+<div id="detail-scrim"></div>
+<aside id="detail"></aside>
+
+<!-- Add / Edit Person modal -->
+<div class="modal-scrim" id="person-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="person-modal-title">New person</h3>
+      <button class="close-btn" data-close="person-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="photo-picker">
+        <img class="photo-preview" id="photo-preview" alt="">
+        <input type="file" id="photo-input" accept="image/*">
+      </div>
+      <label class="field">Name
+        <input type="text" id="field-name" placeholder="Full name">
+      </label>
+      <label class="field">Tags <span class="mono" style="opacity:.6">(comma separated)</span>
+        <input type="text" id="field-tags" placeholder="e.g. family, work, neighbor">
+      </label>
+      <label class="field">Notes
+        <textarea id="field-notes" rows="3" placeholder="How you know them, context, details…"></textarea>
+      </label>
+      <label class="field">
+        <span class="private-toggle" style="cursor:default">Confidential Information <span class="reveal-hint" style="opacity:.6">(blurred until clicked in card view)</span></span>
+        <textarea id="field-private" rows="2" placeholder="Sensitive details you want hidden by default…"></textarea>
+      </label>
+      <div class="field-meta mono" id="field-meta"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn danger ghost" id="delete-person-btn" style="display:none">Delete</button>
+      <button class="btn ghost" data-close="person-modal">Cancel</button>
+      <button class="btn primary" id="save-person-btn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Connect two people modal -->
+<div class="modal-scrim" id="link-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Connect people</h3>
+      <button class="close-btn" data-close="link-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="link-row">
+        <select id="link-a"></select>
+        <select id="link-b"></select>
+      </div>
+      <label class="field">Type
+        <select id="link-type">
+          <option value="family">Family</option>
+          <option value="work">Work</option>
+          <option value="friend">Friend</option>
+          <option value="other" selected>Other</option>
+        </select>
+      </label>
+      <label class="field">Relationship detail
+        <input type="text" id="link-label" placeholder="e.g. older sibling, met at a conference">
+      </label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close="link-modal">Cancel</button>
+      <button class="btn primary" id="save-link-btn">Connect</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div class="modal-scrim" id="settings-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Settings</h3>
+      <button class="close-btn" data-close="settings-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-row">
+        <div>
+          <div>Theme</div>
+          <div class="settings-hint">Switch between dark and light HUD styling</div>
+        </div>
+        <button class="btn ghost" id="theme-toggle-btn">Dark</button>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div>PIN lock</div>
+          <div class="settings-hint">Require a PIN each time the app opens</div>
+        </div>
+        <button class="btn ghost" id="pin-toggle-btn">Off</button>
+      </div>
+      <div id="pin-set-wrap" style="display:none">
+        <label class="field">Set PIN <span class="mono" style="opacity:.6">(4–8 digits)</span>
+          <input type="password" inputmode="numeric" id="pin-set-input" maxlength="8" placeholder="••••">
+        </label>
+        <button class="btn primary" id="pin-set-save" style="width:100%;margin-top:8px">Save PIN</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- What's New modal -->
+<div class="modal-scrim" id="whatsnew-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>What's new</h3>
+      <button class="close-btn" data-close="whatsnew-modal">✕</button>
+    </div>
+    <div class="modal-body" id="whatsnew-body"></div>
+    <div class="modal-foot">
+      <button class="btn primary" data-close="whatsnew-modal">Got it</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="import-file-input" accept="application/json" style="display:none">
+<div id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
