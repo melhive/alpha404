@@ -21,7 +21,20 @@ To deploy on GitHub Pages: push this folder to a repo and enable Pages on it —
 ## Data & backups
 Everything is stored locally in IndexedDB in your browser. Clearing site data/cache will erase it, so use **Export** periodically to save a JSON backup, and **Import** to restore it (on this device or a new one).
 
+## Folders
+Alpha404 now organizes people into folders, CherryTree-style: each folder is a completely separate graph. People, connections, and the legend all scope to whichever folder is active — nothing in "Work" shows up while you're in "Family," and vice versa. Use the 📁 button at the top of the sidebar to switch folders, create new ones, rename them, or delete one (which also deletes everyone and every connection inside it). If the same real person belongs in two folders, add them separately in each — they're independent entries by design, matching how CherryTree containers work.
+
 ## Version
+v1.5.0 — folders: each one is its own self-contained graph (people/connections/legend all scope to the active folder); folder switcher to create/rename/switch/delete; export/import now includes folders.
+
+v1.4.0 — smoother node physics (stronger damping, speed cap, rest threshold instead of jitter); smooth, Obsidian-style scroll-to-zoom that eases toward the cursor; two-finger pinch-to-zoom on touch.
+
+v1.3.1 — fixed connection lines not reaching the other person (the new-connection draw animation was comparing two mismatched clocks).
+
+v1.3.0 — fixed a mobile bug where the ☰ menu button was unreachable behind the toolbar; slower, more cinematic boot sequence (progress bar + system-log lines); ambient scanline, button glow, and HUD corner-bracket framing on dialogs; rotating targeting reticle on the selected node.
+
+v1.2.0 — relationship-type filters, custom fields (phone/email/birthday), multiple photos per person, auto-generated activity log, "how are they connected" path finder, recently-viewed sidebar section, wipe-all-data + auto-lock-on-idle settings, clearer toasts, print a person's card.
+
 v1.1.0 — boot sequence, animated edge-draw, pulse on selected node, eased pan/zoom/auto-centering, relationship-type color coding + legend, added/updated timestamps, optional PIN lock (with auto-relock on Confidential Information after ~6s), undo-for-delete, keyboard shortcuts (⌘K search, N new person, Esc to close), light/dark theme toggle, in-app What's New panel.
 
 v1.0.0 — initial build: graph, people, connections, Confidential Information reveal, export/import, offline shell.

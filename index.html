@@ -13,7 +13,12 @@
 <body>
 
 <div id="boot-screen">
-  <div class="boot-lines mono" id="boot-lines"></div>
+  <div class="boot-inner">
+    <div class="boot-logo" id="boot-logo">ALPHA<span>404</span></div>
+    <div class="boot-lines mono" id="boot-lines"></div>
+    <div class="boot-progress"><div class="boot-progress-fill" id="boot-progress-fill"></div></div>
+    <div class="boot-pct mono" id="boot-pct">0%</div>
+  </div>
 </div>
 
 <div id="lock-screen" style="display:none">
@@ -31,9 +36,14 @@
     <div class="brand">
       <div class="mark">ALPHA<span>404</span></div>
       <div class="sub">offline relationship graph</div>
+      <button class="folder-switch" id="folder-switch-btn">📁 <span id="active-folder-name">General</span> <span class="chev">▾</span></button>
     </div>
     <div class="search-wrap">
       <input type="search" id="search" placeholder="Search people or tags… (⌘K)" autocomplete="off">
+    </div>
+    <div id="recent-wrap" class="recent-wrap" style="display:none">
+      <div class="recent-label">Recently viewed</div>
+      <div id="recent-list" class="recent-list"></div>
     </div>
     <div id="person-list"></div>
     <div class="legend" id="legend"></div>
@@ -46,11 +56,14 @@
   </aside>
 
   <main id="graph-wrap">
-    <button id="menu-btn" aria-label="Open list">☰</button>
     <div id="graph-toolbar">
-      <div class="hud-tag mono">NODES <b id="node-count">0</b> &nbsp;·&nbsp; LINKS <b id="link-count">0</b></div>
+      <div class="toolbar-left">
+        <button id="menu-btn" aria-label="Open list">☰</button>
+        <div class="hud-tag mono">NODES <b id="node-count">0</b> &nbsp;·&nbsp; LINKS <b id="link-count">0</b></div>
+      </div>
       <div id="graph-controls">
         <button class="btn ghost" id="link-mode-btn" title="Connect two people">Connect</button>
+        <button class="btn ghost" id="path-btn" title="Find how two people connect">Path</button>
         <button class="btn ghost" id="reset-view-btn" title="Reset view">Reset view</button>
       </div>
     </div>
@@ -63,7 +76,7 @@
       <h2>No one mapped yet</h2>
       <p>Add the first person to start building the graph. Everything stays on this device.</p>
     </div>
-    <button class="version-tag mono" id="version-tag">v1.1.0 · what's new</button>
+    <button class="version-tag mono" id="version-tag">v1.5.0 · what's new</button>
   </main>
 </div>
 
@@ -80,10 +93,22 @@
     <div class="modal-body">
       <div class="photo-picker">
         <img class="photo-preview" id="photo-preview" alt="">
-        <input type="file" id="photo-input" accept="image/*">
+        <input type="file" id="photo-input" accept="image/*" multiple>
       </div>
+      <div id="gallery-strip" class="gallery-strip"></div>
       <label class="field">Name
         <input type="text" id="field-name" placeholder="Full name">
+      </label>
+      <div class="two-col">
+        <label class="field">Phone
+          <input type="text" id="field-phone" placeholder="Optional">
+        </label>
+        <label class="field">Email
+          <input type="text" id="field-email" placeholder="Optional">
+        </label>
+      </div>
+      <label class="field">Birthday
+        <input type="text" id="field-birthday" placeholder="e.g. 1995-04-12 or April 12">
       </label>
       <label class="field">Tags <span class="mono" style="opacity:.6">(comma separated)</span>
         <input type="text" id="field-tags" placeholder="e.g. family, work, neighbor">
@@ -136,6 +161,24 @@
   </div>
 </div>
 
+<!-- Path finder modal -->
+<div class="modal-scrim" id="path-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>How are they connected?</h3>
+      <button class="close-btn" data-close="path-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="link-row">
+        <select id="path-a"></select>
+        <select id="path-b"></select>
+      </div>
+      <button class="btn primary" id="path-find-btn">Find path</button>
+      <div id="path-result"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Settings modal -->
 <div class="modal-scrim" id="settings-modal">
   <div class="modal">
@@ -163,6 +206,43 @@
           <input type="password" inputmode="numeric" id="pin-set-input" maxlength="8" placeholder="••••">
         </label>
         <button class="btn primary" id="pin-set-save" style="width:100%;margin-top:8px">Save PIN</button>
+      </div>
+      <div class="settings-row" id="autolock-row" style="display:none">
+        <div>
+          <div>Auto-lock after idle</div>
+          <div class="settings-hint">Re-lock automatically when unattended</div>
+        </div>
+        <select id="autolock-select" style="width:auto">
+          <option value="0">Off</option>
+          <option value="60000">1 min</option>
+          <option value="300000">5 min</option>
+          <option value="900000">15 min</option>
+        </select>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div>Wipe all data</div>
+          <div class="settings-hint">Permanently erase every folder, person, and connection on this device</div>
+        </div>
+        <button class="btn danger ghost" id="wipe-btn">Wipe</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Folders modal (each folder is its own self-contained graph) -->
+<div class="modal-scrim" id="folder-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Folders</h3>
+      <button class="close-btn" data-close="folder-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-hint">Each folder is its own separate graph — people and connections in one don't appear in another.</div>
+      <div id="folder-list"></div>
+      <div class="link-row">
+        <input type="text" id="new-folder-name" placeholder="New folder name">
+        <button class="btn primary" id="add-folder-btn">Add</button>
       </div>
     </div>
   </div>
