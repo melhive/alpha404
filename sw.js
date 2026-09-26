@@ -1,4 +1,4 @@
-const CACHE_NAME = 'alpha404-v1.5.0';
+const CACHE_NAME = 'alpha404-v1.8.1';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -23,19 +23,17 @@ self.addEventListener('activate', event => {
   );
 });
 
-// Cache-first for the app shell, so the app works fully offline after first load.
-// Falls back to network, and refreshes the cache when online.
+// Network-first for the app shell: always try to get the latest deployed
+// files when online (so version updates land immediately), and fall back
+// to the cached copy only when there's no connection.
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   event.respondWith(
-    caches.match(event.request).then(cached => {
-      const fetchPromise = fetch(event.request).then(networkResponse => {
-        if (networkResponse && networkResponse.ok) {
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, networkResponse.clone()));
-        }
-        return networkResponse;
-      }).catch(() => cached);
-      return cached || fetchPromise;
-    })
+    fetch(event.request).then(networkResponse => {
+      if (networkResponse && networkResponse.ok) {
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, networkResponse.clone()));
+      }
+      return networkResponse;
+    }).catch(() => caches.match(event.request))
   );
 });

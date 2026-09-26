@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Alpha404</title>
 <meta name="theme-color" content="#0A0E12">
 <link rel="manifest" href="manifest.json">
@@ -32,11 +32,13 @@
 </div>
 
 <div id="app">
+  <div id="sidebar-scrim"></div>
   <aside id="sidebar">
     <div class="brand">
+      <button class="sidebar-close" id="sidebar-close-btn" aria-label="Close menu">✕</button>
       <div class="mark">ALPHA<span>404</span></div>
       <div class="sub">offline relationship graph</div>
-      <button class="folder-switch" id="folder-switch-btn">📁 <span id="active-folder-name">General</span> <span class="chev">▾</span></button>
+      <button class="folder-switch" id="folder-switch-btn"><span class="folder-dot-static" id="folder-switch-dot"></span> <span id="active-folder-name">General</span> <span class="chev">▾</span></button>
     </div>
     <div class="search-wrap">
       <input type="search" id="search" placeholder="Search people or tags… (⌘K)" autocomplete="off">
@@ -58,7 +60,7 @@
   <main id="graph-wrap">
     <div id="graph-toolbar">
       <div class="toolbar-left">
-        <button id="menu-btn" aria-label="Open list">☰</button>
+        <button id="menu-btn" aria-label="Open list"><span class="bar"></span><span class="bar"></span><span class="bar"></span></button>
         <div class="hud-tag mono">NODES <b id="node-count">0</b> &nbsp;·&nbsp; LINKS <b id="link-count">0</b></div>
       </div>
       <div id="graph-controls">
@@ -76,7 +78,7 @@
       <h2>No one mapped yet</h2>
       <p>Add the first person to start building the graph. Everything stays on this device.</p>
     </div>
-    <button class="version-tag mono" id="version-tag">v1.5.0 · what's new</button>
+    <button class="version-tag mono" id="version-tag">v1.8.1 · what's new</button>
   </main>
 </div>
 
@@ -91,11 +93,9 @@
       <button class="close-btn" data-close="person-modal">✕</button>
     </div>
     <div class="modal-body">
-      <div class="photo-picker">
-        <img class="photo-preview" id="photo-preview" alt="">
-        <input type="file" id="photo-input" accept="image/*" multiple>
-      </div>
+      <div class="field-label">Photos</div>
       <div id="gallery-strip" class="gallery-strip"></div>
+      <input type="file" id="photo-input" accept="image/*" multiple style="display:none">
       <label class="field">Name
         <input type="text" id="field-name" placeholder="Full name">
       </label>
@@ -221,10 +221,23 @@
       </div>
       <div class="settings-row">
         <div>
+          <div>Storage used</div>
+          <div class="settings-hint">Everything is stored on this device only</div>
+        </div>
+        <span class="mono" id="storage-usage" style="color:var(--muted); font-size:11.5px">—</span>
+      </div>
+      <div class="settings-row">
+        <div>
           <div>Wipe all data</div>
           <div class="settings-hint">Permanently erase every folder, person, and connection on this device</div>
         </div>
         <button class="btn danger ghost" id="wipe-btn">Wipe</button>
+      </div>
+      <div id="wipe-confirm-wrap" style="display:none">
+        <label class="field">Type <span class="mono">WIPE</span> to confirm
+          <input type="text" id="wipe-confirm-input" autocomplete="off">
+        </label>
+        <button class="btn danger" id="wipe-confirm-btn" style="width:100%;margin-top:8px">Permanently erase everything</button>
       </div>
     </div>
   </div>
@@ -244,6 +257,30 @@
         <input type="text" id="new-folder-name" placeholder="New folder name">
         <button class="btn primary" id="add-folder-btn">Add</button>
       </div>
+      <div id="new-folder-colors" class="folder-color-row"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Photo crop/zoom modal -->
+<div class="modal-scrim" id="crop-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Adjust photo</h3>
+      <button class="close-btn" id="crop-close-btn">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="crop-stage" id="crop-stage">
+        <canvas id="crop-canvas" width="280" height="280"></canvas>
+      </div>
+      <label class="field">Zoom
+        <input type="range" id="crop-zoom" min="100" max="320" value="100">
+      </label>
+      <div class="settings-hint">Drag the photo to reposition it inside the frame.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="crop-cancel-btn">Cancel</button>
+      <button class="btn primary" id="crop-confirm-btn">Use Photo</button>
     </div>
   </div>
 </div>
@@ -263,6 +300,7 @@
 </div>
 
 <input type="file" id="import-file-input" accept="application/json" style="display:none">
+<input type="file" id="detail-photo-input" accept="image/*" multiple style="display:none">
 <div id="toast"></div>
 
 <script src="app.js"></script>

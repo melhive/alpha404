@@ -25,6 +25,14 @@ Everything is stored locally in IndexedDB in your browser. Clearing site data/ca
 Alpha404 now organizes people into folders, CherryTree-style: each folder is a completely separate graph. People, connections, and the legend all scope to whichever folder is active — nothing in "Work" shows up while you're in "Family," and vice versa. Use the 📁 button at the top of the sidebar to switch folders, create new ones, rename them, or delete one (which also deletes everyone and every connection inside it). If the same real person belongs in two folders, add them separately in each — they're independent entries by design, matching how CherryTree containers work.
 
 ## Version
+v1.8.1 — fixed the app getting stuck on an old cached version after an update: switched the service worker from cache-first to network-first (so the latest deployed files load immediately whenever you're online), and added an automatic one-time reload when a new version takes over. If you're currently stuck on an old version (check the corner tag), redeploy this build, then fully close the app and reopen it once, or clear the site's storage/cache from your browser settings — that forces the new service worker to take over immediately instead of waiting.
+
+v1.8.0 — global search: the sidebar search now also surfaces matches from your other folders (tagged with which folder), so you can find someone without checking each folder manually; fixed a bug where switching folders while a detail view was open left the old person's panel showing.
+
+v1.7.0 — every photo is cropped/zoomed and compressed before storage; a dedicated Photos area on each person (add more photos from their detail view, not just while editing); storage-used indicator in Settings; type-to-confirm on Wipe-all-data and Delete-folder; folder colors; pin a person's position; duplicate-name warning; focus mode (dims everyone except the selected person's direct connections).
+
+v1.6.0 — the Android/browser back button now closes the sidebar, an open dialog, or the detail panel instead of leaving the app; fixed pinch-to-zoom triggering the browser's own page zoom (which panned the toolbar off-screen); added a tap-to-close scrim and an explicit close button on the mobile sidebar; polished buttons and the menu icon (animated hamburger-to-X); fixed hover/glow effects sticking on buttons after a tap on touchscreens.
+
 v1.5.0 — folders: each one is its own self-contained graph (people/connections/legend all scope to the active folder); folder switcher to create/rename/switch/delete; export/import now includes folders.
 
 v1.4.0 — smoother node physics (stronger damping, speed cap, rest threshold instead of jitter); smooth, Obsidian-style scroll-to-zoom that eases toward the cursor; two-finger pinch-to-zoom on touch.

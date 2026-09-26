@@ -1,8 +1,44 @@
 /* Alpha404 — offline relationship graph
    No camera access. No image matching. No facial recognition of any kind. */
 
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.8.1';
 const CHANGELOG = [
+  {
+    version: '1.8.1',
+    items: [
+      'Fixed the app getting stuck on an old cached version after an update (switched to network-first caching, plus an automatic one-time reload when a new version is ready) — this is why the back-button/sidebar fixes from 1.6.0 may not have shown up yet on some devices'
+    ]
+  },
+  {
+    version: '1.8.0',
+    items: [
+      'Global search — typing in the sidebar search now also shows matches from your other folders, tagged with which folder they\'re in; tap one to jump straight there',
+      'Fixed a bug where switching folders while someone\'s detail view was open left the old person\'s panel showing instead of closing it'
+    ]
+  },
+  {
+    version: '1.7.0',
+    items: [
+      'Every photo is now cropped/zoomed and compressed before it\'s stored — drag to reposition, use the slider to zoom, applies to both new uploads and existing people',
+      'A dedicated Photos area on every person — add more photos straight from their detail view, not just while editing',
+      'Storage-used indicator in Settings',
+      'Wipe-all-data and Delete-folder now require typing to confirm instead of a plain OK/Cancel prompt',
+      'Folder colors — pick one when creating a folder, or tap the dot next to an existing folder to cycle its color',
+      'Pin a person\'s position (📌 in their detail view) so the graph physics stops nudging them',
+      'A warning when adding someone whose name already exists in the current folder',
+      'Focus mode — selecting someone now dims everyone except their direct connections'
+    ]
+  },
+  {
+    version: '1.6.0',
+    items: [
+      'Android/browser back button now closes the sidebar, any open dialog, or the detail panel — instead of doing nothing or leaving the app',
+      'Fixed pinch-to-zoom triggering the browser\u2019s own page zoom, which panned the toolbar and buttons off-screen — gestures are now fully handled by the app',
+      'Added a tap-to-close scrim and a close button on the mobile sidebar',
+      'Polished buttons and the menu icon (animated hamburger-to-X) for a cleaner, more professional feel',
+      'Fixed hover/glow effects sticking on buttons after a tap on touchscreens (hover styles now only apply on devices that actually have a mouse)'
+    ]
+  },
   {
     version: '1.5.0',
     items: [
@@ -61,6 +97,8 @@ const CHANGELOG = [
     items: ['Initial build: manual people entries, photos, tags, notes, connection graph, export/import, offline shell']
   }
 ];
+
+const FOLDER_COLORS = ['#4FD1C5', '#E8A33D', '#9B8CFF', '#E85D5D', '#6FCF97', '#5CA0E8'];
 
 const LINK_TYPES = {
   family: { label: 'Family', color: '#E8A33D' },
@@ -142,6 +180,53 @@ let linkMode = false;
 let linkModeFirst = null;
 let hiddenTypes = new Set(JSON.parse(localStorage.getItem('a404_hidden_types') || '[]'));
 
+// ---------- Back-button-aware overlay stack ----------
+// Every time an overlay (sidebar / modal / detail panel) opens, it pushes a
+// history entry. The hardware/browser back button then closes the most
+// recently opened overlay instead of leaving the app. Explicit close actions
+// (X buttons, scrim taps, Escape, save-success) also route through this so
+// the two stay in sync either way.
+let uiStack = [];
+let pendingStates = 0;
+
+function openLayer(name) {
+  uiStack.push(name);
+  pendingStates++;
+  history.pushState({ a404: pendingStates }, '');
+}
+function hideLayerVisual(name) {
+  if (name === 'sidebar') {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebar-scrim').classList.remove('show');
+    document.getElementById('menu-btn').classList.remove('is-open');
+  } else if (name === 'detail') {
+    selectedId = null;
+    document.getElementById('detail').classList.remove('open');
+    document.getElementById('detail-scrim').classList.remove('show');
+    refreshSidebar();
+  } else if (name && name.startsWith('modal:')) {
+    const el = document.getElementById(name.slice(6));
+    if (el) el.classList.remove('show');
+  }
+}
+// Call this from any user-facing close action (button, scrim, Escape, or a
+// successful save that dismisses a modal). Safe to call even if nothing is
+// open — it's a no-op in that case.
+function requestBack() {
+  if (pendingStates > 0) history.back();
+}
+window.addEventListener('popstate', () => {
+  if (document.getElementById('lock-screen').style.display === 'flex') {
+    // Never let back-navigation bypass the PIN lock.
+    history.pushState({ a404: ++pendingStates }, '');
+    return;
+  }
+  if (uiStack.length === 0) return;
+  pendingStates = Math.max(0, pendingStates - 1);
+  const name = uiStack.pop();
+  hideLayerVisual(name);
+});
+
 const canvas = document.getElementById('graph');
 const ctx = canvas.getContext('2d');
 let view = { x: 0, y: 0, scale: 1 };
@@ -212,10 +297,11 @@ function addActivity(p, text) {
 async function ensureFolders() {
   folders = await getAll('folders');
   if (folders.length === 0) {
-    const f = { id: uid('f'), name: 'General', createdAt: Date.now() };
+    const f = { id: uid('f'), name: 'General', color: FOLDER_COLORS[0], createdAt: Date.now() };
     folders.push(f);
     await put('folders', f);
   }
+  folders.forEach(f => { if (!f.color) f.color = FOLDER_COLORS[0]; });
   activeFolderId = localStorage.getItem('a404_active_folder');
   if (!activeFolderId || !folders.find(f => f.id === activeFolderId)) {
     activeFolderId = folders[0].id;
@@ -234,9 +320,10 @@ async function switchFolder(fid) {
   activeFolderId = fid;
   localStorage.setItem('a404_active_folder', fid);
   selectedId = null;
+  document.getElementById('detail').classList.remove('open');
+  document.getElementById('detail-scrim').classList.remove('show');
   highlightPath = null;
   linkMode && exitLinkMode();
-  closeDetail();
   document.getElementById('search').value = '';
   animateViewTo(0, 0, 1, 400);
   renderFolderSwitch();
@@ -250,15 +337,28 @@ async function switchFolder(fid) {
 function renderFolderSwitch() {
   const f = activeFolder();
   document.getElementById('active-folder-name').textContent = f ? f.name : '—';
+  document.getElementById('folder-switch-dot').style.background = f ? f.color : 'var(--muted)';
 }
 
+let deleteConfirmFolderId = null;
 function renderFolderList() {
   const el = document.getElementById('folder-list');
   el.innerHTML = folders.map(f => {
     const count = peopleInFolder(f.id).length;
     const isActive = f.id === activeFolderId;
+    if (deleteConfirmFolderId === f.id) {
+      return `
+      <div class="folder-row folder-row-confirm">
+        <div style="flex:1">
+          <div class="settings-hint">Type "<strong>${escapeHtml(f.name)}</strong>" to permanently delete it and everyone inside (${count})</div>
+          <input type="text" class="folder-delete-confirm-input" data-confirmdel="${f.id}" autocomplete="off" style="margin-top:6px">
+        </div>
+        <button class="icon-btn-sm" data-canceldel title="Cancel">✕</button>
+      </div>`;
+    }
     return `
       <div class="folder-row${isActive ? ' active' : ''}" data-switch="${f.id}">
+        <button class="folder-dot" data-cyclecolor="${f.id}" title="Change color" style="background:${f.color}"></button>
         <span class="folder-name">${escapeHtml(f.name)}</span>
         <span class="folder-count mono">${count}</span>
         <button class="icon-btn-sm" data-rename="${f.id}" title="Rename">✎</button>
@@ -276,8 +376,35 @@ function renderFolderList() {
   }));
   el.querySelectorAll('[data-delfolder]').forEach(btn => btn.addEventListener('click', e => {
     e.stopPropagation();
-    deleteFolder(btn.dataset.delfolder);
+    if (folders.length <= 1) { showToast("Can't delete the only folder."); return; }
+    deleteConfirmFolderId = btn.dataset.delfolder;
+    renderFolderList();
   }));
+  el.querySelectorAll('[data-cyclecolor]').forEach(btn => btn.addEventListener('click', async e => {
+    e.stopPropagation();
+    const f = folders.find(f => f.id === btn.dataset.cyclecolor);
+    if (!f) return;
+    const idx = FOLDER_COLORS.indexOf(f.color);
+    f.color = FOLDER_COLORS[(idx + 1) % FOLDER_COLORS.length];
+    await put('folders', f);
+    renderFolderList();
+    renderFolderSwitch();
+  }));
+  el.querySelectorAll('[data-canceldel]').forEach(btn => btn.addEventListener('click', () => {
+    deleteConfirmFolderId = null;
+    renderFolderList();
+  }));
+  el.querySelectorAll('[data-confirmdel]').forEach(input => {
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') tryConfirmDeleteFolder(input.dataset.confirmdel, input.value); });
+    setTimeout(() => input.focus(), 30);
+  });
+}
+function tryConfirmDeleteFolder(fid, typed) {
+  const f = folders.find(f => f.id === fid);
+  if (!f) return;
+  if (typed.trim() !== f.name) { showToast('Name doesn\'t match — folder not deleted.'); return; }
+  deleteConfirmFolderId = null;
+  deleteFolder(fid);
 }
 async function renameFolder(fid) {
   const f = folders.find(f => f.id === fid);
@@ -292,8 +419,6 @@ async function renameFolder(fid) {
 async function deleteFolder(fid) {
   if (folders.length <= 1) { showToast("Can't delete the only folder."); return; }
   const f = folders.find(f => f.id === fid);
-  const count = peopleInFolder(fid).length;
-  if (!confirm(`Delete "${f.name}" and everyone in it (${count} ${count === 1 ? 'person' : 'people'})? This cannot be undone.`)) return;
   const toRemovePeople = peopleInFolder(fid);
   const removeIds = new Set(toRemovePeople.map(p => p.id));
   const toRemoveLinks = links.filter(l => removeIds.has(l.a) || removeIds.has(l.b));
@@ -313,19 +438,33 @@ async function deleteFolder(fid) {
   showToast('Folder deleted.');
 }
 document.getElementById('folder-switch-btn').addEventListener('click', () => {
+  deleteConfirmFolderId = null;
   renderFolderList();
   document.getElementById('new-folder-name').value = '';
+  renderNewFolderColors();
   document.getElementById('folder-modal').classList.add('show');
+  openLayer('modal:folder-modal');
 });
+let newFolderColor = FOLDER_COLORS[0];
+function renderNewFolderColors() {
+  newFolderColor = FOLDER_COLORS[0];
+  const el = document.getElementById('new-folder-colors');
+  el.innerHTML = FOLDER_COLORS.map(c => `<button class="folder-swatch${c === newFolderColor ? ' selected' : ''}" data-color="${c}" style="background:${c}"></button>`).join('');
+  el.querySelectorAll('.folder-swatch').forEach(btn => btn.addEventListener('click', () => {
+    newFolderColor = btn.dataset.color;
+    el.querySelectorAll('.folder-swatch').forEach(b => b.classList.toggle('selected', b.dataset.color === newFolderColor));
+  }));
+}
 document.getElementById('add-folder-btn').addEventListener('click', async () => {
   const input = document.getElementById('new-folder-name');
   const name = input.value.trim();
   if (!name) { showToast('Give the folder a name.'); return; }
-  const f = { id: uid('f'), name, createdAt: Date.now() };
+  const f = { id: uid('f'), name, color: newFolderColor, createdAt: Date.now() };
   folders.push(f);
   await put('folders', f);
   input.value = '';
   renderFolderList();
+  renderNewFolderColors();
   showToast(`Folder "${name}" created.`);
 });
 
@@ -443,6 +582,7 @@ function tick() {
   const maxSpeed = 6;
   for (const p of scopedPeople) {
     if (dragging && dragging.type === 'node' && dragging.id === p.id) { p.vx = 0; p.vy = 0; continue; }
+    if (p.pinned) { p.vx = 0; p.vy = 0; continue; }
     p.vx *= 0.8; p.vy *= 0.8;
     const speed = Math.hypot(p.vx, p.vy);
     if (speed > maxSpeed) { p.vx = (p.vx / speed) * maxSpeed; p.vy = (p.vy / speed) * maxSpeed; }
@@ -474,11 +614,22 @@ function draw(now) {
   for (let x = offX; x < rect.width; x += gridSize) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, rect.height); ctx.stroke(); }
   for (let y = offY; y < rect.height; y += gridSize) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(rect.width, y); ctx.stroke(); }
 
+  const focusSet = (selectedId && !highlightPath && !linkMode) ? (() => {
+    const set = new Set([selectedId]);
+    linksInFolder().forEach(l => {
+      if (hiddenTypes.has(l.type || 'other')) return;
+      if (l.a === selectedId) set.add(l.b);
+      if (l.b === selectedId) set.add(l.a);
+    });
+    return set;
+  })() : null;
+
   for (const l of linksInFolder()) {
     if (hiddenTypes.has(l.type || 'other')) continue;
     const a = people.find(p => p.id === l.a);
     const b = people.find(p => p.id === l.b);
     if (!a || !b) continue;
+    ctx.globalAlpha = focusSet && !(l.a === selectedId || l.b === selectedId) ? 0.22 : 1;
     const info = LINK_TYPES[l.type] || LINK_TYPES.other;
     let sa = worldToScreen(a.x, a.y), sb = worldToScreen(b.x, b.y);
     const progress = l.createdAt ? Math.min(1, Math.max(0, (Date.now() - l.createdAt) / 500)) : 1;
@@ -500,8 +651,10 @@ function draw(now) {
       ctx.fillText(l.label, mx, my - 4);
     }
   }
+  ctx.globalAlpha = 1;
 
   for (const p of peopleInFolder()) {
+    ctx.globalAlpha = focusSet && !focusSet.has(p.id) ? 0.25 : 1;
     const s = worldToScreen(p.x, p.y);
     const baseR = (p.id === selectedId ? 15 : 12) * Math.min(view.scale, 1.4);
     const isHover = hoverId === p.id;
@@ -582,7 +735,14 @@ function draw(now) {
       ctx.textBaseline = 'top';
       ctx.fillText(p.name, s.x, s.y + baseR + 5);
     }
+    if (p.pinned) {
+      ctx.font = `${Math.round(baseR * 0.85)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('📌', s.x + baseR * 0.72, s.y - baseR * 0.72);
+    }
   }
+  ctx.globalAlpha = 1;
   ctx.restore();
 }
 function hexToRgba(hex, alpha) {
@@ -764,9 +924,39 @@ function refreshSidebar() {
     row.addEventListener('click', () => openDetail(p.id, true));
     list.appendChild(row);
   }
+
+  if (query) {
+    const otherMatches = people.filter(p => p.folderId !== activeFolderId && (p.name + ' ' + (p.tags || []).join(' ')).toLowerCase().includes(query))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (otherMatches.length) {
+      const header = document.createElement('div');
+      header.className = 'search-section-label';
+      header.textContent = `In other folders (${otherMatches.length})`;
+      list.appendChild(header);
+      for (const p of otherMatches) {
+        const f = folders.find(f => f.id === p.folderId);
+        const row = document.createElement('div');
+        row.className = 'person-row person-row-other';
+        row.innerHTML = `
+          ${p.photo ? `<img class="avatar" src="${p.photo}">` : `<div class="avatar">${initials(p.name)}</div>`}
+          <div>
+            <div class="name">${escapeHtml(p.name)}</div>
+            <div class="tag"><span class="folder-dot-static" style="background:${f ? f.color : 'var(--muted)'}"></span> ${escapeHtml(f ? f.name : 'Unknown folder')}</div>
+          </div>`;
+        row.addEventListener('click', () => jumpToPerson(p.id));
+        list.appendChild(row);
+      }
+    }
+  }
   renderRecent();
 }
 document.getElementById('search').addEventListener('input', refreshSidebar);
+async function jumpToPerson(id) {
+  const p = people.find(p => p.id === id);
+  if (!p) return;
+  if (p.folderId !== activeFolderId) await switchFolder(p.folderId);
+  openDetail(id, true);
+}
 
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -774,6 +964,7 @@ function escapeHtml(s) {
 
 // ---------- Detail panel ----------
 function openDetail(id, andCenter) {
+  const wasOpen = document.getElementById('detail').classList.contains('open');
   selectedId = id;
   const p = people.find(p => p.id === id);
   if (!p) return;
@@ -796,12 +987,22 @@ function openDetail(id, andCenter) {
     <div class="detail-head">
       <button class="close-btn" id="detail-close">✕</button>
       ${p.photo ? `<img class="detail-photo" src="${p.photo}">` : `<div class="detail-photo">${initials(p.name)}</div>`}
-      ${p.photos && p.photos.length > 1 ? `<div class="gallery-strip" style="margin-top:8px">${p.photos.map(ph => `<div class="gallery-thumb"><img src="${ph}"></div>`).join('')}</div>` : ''}
       <div class="detail-name">${escapeHtml(p.name)}</div>
       <div class="detail-record-id mono">REC· ${recordId(p.id)}</div>
       ${contactBits ? `<div class="detail-meta">${contactBits}</div>` : ''}
       <div>${(p.tags || []).map(t => `<span class="tag-chip">${escapeHtml(t)}</span>`).join('')}</div>
       <div class="detail-meta mono">Added ${fmtDate(p.createdAt)} · Updated ${fmtDate(p.updatedAt)}</div>
+    </div>
+    <div class="detail-section">
+      <h4>Photos</h4>
+      <div class="gallery-strip">
+        ${(p.photos || []).map((ph, i) => `
+          <div class="gallery-thumb${i === 0 ? ' is-primary' : ''}">
+            <img src="${ph}">
+            ${i === 0 ? '<div class="primary-badge">MAIN</div>' : ''}
+          </div>`).join('')}
+        <button class="gallery-add-tile" id="detail-add-photo-tile" title="Add photo">+</button>
+      </div>
     </div>
     ${p.notes ? `<div class="detail-section"><h4>Notes</h4><div class="notes-text">${escapeHtml(p.notes)}</div></div>` : ''}
     ${p.private ? `
@@ -828,12 +1029,14 @@ function openDetail(id, andCenter) {
     </div>
     <div class="detail-actions">
       <button class="btn ghost" id="detail-edit">Edit</button>
+      <button class="btn ghost" id="detail-pin">${p.pinned ? '📌 Unpin' : '📌 Pin'}</button>
       <button class="btn ghost" id="detail-print">Print</button>
       <button class="btn danger ghost" id="detail-delete">Delete</button>
     </div>
   `;
   detail.classList.add('open');
   document.getElementById('detail-scrim').classList.add('show');
+  if (!wasOpen) openLayer('detail');
 
   document.getElementById('detail-close').addEventListener('click', closeDetail);
   const pt = document.getElementById('private-toggle');
@@ -851,18 +1054,45 @@ function openDetail(id, andCenter) {
     removeLink(el.dataset.unlink);
   }));
   document.getElementById('detail-edit').addEventListener('click', () => openPersonModal(p.id));
+  document.getElementById('detail-pin').addEventListener('click', () => togglePin(p.id));
   document.getElementById('detail-print').addEventListener('click', () => window.print());
   document.getElementById('detail-delete').addEventListener('click', () => softDeletePerson(p.id));
+  document.getElementById('detail-add-photo-tile').addEventListener('click', () => document.getElementById('detail-photo-input').click());
 
   refreshSidebar();
 }
+async function togglePin(id) {
+  const p = people.find(p => p.id === id);
+  if (!p) return;
+  p.pinned = !p.pinned;
+  if (p.pinned) { p.vx = 0; p.vy = 0; }
+  addActivity(p, p.pinned ? 'Pinned in place' : 'Unpinned');
+  await put('people', stripRuntime(p));
+  showToast(p.pinned ? 'Position pinned.' : 'Unpinned.');
+  if (selectedId === id) openDetail(id);
+}
 function closeDetail() {
-  selectedId = null;
-  document.getElementById('detail').classList.remove('open');
-  document.getElementById('detail-scrim').classList.remove('show');
-  refreshSidebar();
+  if (selectedId === null) return;
+  requestBack();
 }
 document.getElementById('detail-scrim').addEventListener('click', closeDetail);
+document.getElementById('detail-photo-input').addEventListener('change', e => {
+  const targetId = selectedId;
+  queuePhotoFiles(e.target.files, async dataUrl => {
+    const p = people.find(p => p.id === targetId);
+    if (!p) return;
+    if (!p.photos) p.photos = p.photo ? [p.photo] : [];
+    p.photos.push(dataUrl);
+    if (!p.photo) p.photo = dataUrl;
+    p.updatedAt = Date.now();
+    if (p.photo) loadPhotoImg(p);
+    addActivity(p, 'Added a photo');
+    await put('people', stripRuntime(p));
+    refreshSidebar();
+    if (selectedId === targetId) openDetail(targetId);
+  });
+  e.target.value = '';
+});
 
 async function removeLink(linkId) {
   const l = links.find(l => l.id === linkId);
@@ -877,6 +1107,107 @@ async function removeLink(linkId) {
   if (selectedId) openDetail(selectedId);
   showToast('Connection removed.');
 }
+
+// ---------- Photo pipeline: every photo is cropped AND compressed before storage ----------
+const CROP_STAGE_SIZE = 280;
+const CROP_OUTPUT_SIZE = 480;
+const PHOTO_QUALITY = 0.82;
+
+let cropQueue = [];
+let cropOnEach = null;
+let cropImg = null;
+let cropState = { scale: 1, offsetX: 0, offsetY: 0, baseScale: 1 };
+let cropDragStart = null;
+
+function queuePhotoFiles(fileList, onEachCropped) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  cropQueue = files;
+  cropOnEach = onEachCropped;
+  processNextCropFile();
+}
+function processNextCropFile() {
+  if (!cropQueue.length) return;
+  const file = cropQueue.shift();
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => openCropper(img);
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+function openCropper(img) {
+  cropImg = img;
+  cropState.baseScale = Math.max(CROP_STAGE_SIZE / img.width, CROP_STAGE_SIZE / img.height);
+  cropState.scale = 1;
+  cropState.offsetX = 0;
+  cropState.offsetY = 0;
+  document.getElementById('crop-zoom').value = 100;
+  drawCrop();
+  document.getElementById('crop-modal').classList.add('show');
+  openLayer('modal:crop-modal');
+}
+function clampCropOffset() {
+  const effScale = cropState.baseScale * cropState.scale;
+  const dw = cropImg.width * effScale, dh = cropImg.height * effScale;
+  const maxX = Math.max(0, (dw - CROP_STAGE_SIZE) / 2);
+  const maxY = Math.max(0, (dh - CROP_STAGE_SIZE) / 2);
+  cropState.offsetX = Math.min(maxX, Math.max(-maxX, cropState.offsetX));
+  cropState.offsetY = Math.min(maxY, Math.max(-maxY, cropState.offsetY));
+}
+function drawCrop() {
+  const canvas = document.getElementById('crop-canvas');
+  const cctx = canvas.getContext('2d');
+  cctx.clearRect(0, 0, CROP_STAGE_SIZE, CROP_STAGE_SIZE);
+  const effScale = cropState.baseScale * cropState.scale;
+  const dw = cropImg.width * effScale, dh = cropImg.height * effScale;
+  const cx = CROP_STAGE_SIZE / 2 + cropState.offsetX, cy = CROP_STAGE_SIZE / 2 + cropState.offsetY;
+  cctx.drawImage(cropImg, cx - dw / 2, cy - dh / 2, dw, dh);
+}
+function renderCropOutput() {
+  const out = document.createElement('canvas');
+  out.width = CROP_OUTPUT_SIZE; out.height = CROP_OUTPUT_SIZE;
+  const octx = out.getContext('2d');
+  const factor = CROP_OUTPUT_SIZE / CROP_STAGE_SIZE;
+  const effScale = cropState.baseScale * cropState.scale * factor;
+  const dw = cropImg.width * effScale, dh = cropImg.height * effScale;
+  const cx = CROP_OUTPUT_SIZE / 2 + cropState.offsetX * factor, cy = CROP_OUTPUT_SIZE / 2 + cropState.offsetY * factor;
+  octx.drawImage(cropImg, cx - dw / 2, cy - dh / 2, dw, dh);
+  return out.toDataURL('image/jpeg', PHOTO_QUALITY);
+}
+document.getElementById('crop-zoom').addEventListener('input', e => {
+  cropState.scale = Number(e.target.value) / 100;
+  clampCropOffset();
+  drawCrop();
+});
+const cropStageEl = document.getElementById('crop-stage');
+cropStageEl.addEventListener('pointerdown', e => {
+  cropDragStart = { x: e.clientX, y: e.clientY, ox: cropState.offsetX, oy: cropState.offsetY };
+  cropStageEl.setPointerCapture(e.pointerId);
+});
+cropStageEl.addEventListener('pointermove', e => {
+  if (!cropDragStart) return;
+  const ratio = CROP_STAGE_SIZE / cropStageEl.getBoundingClientRect().width;
+  cropState.offsetX = cropDragStart.ox + (e.clientX - cropDragStart.x) * ratio;
+  cropState.offsetY = cropDragStart.oy + (e.clientY - cropDragStart.y) * ratio;
+  clampCropOffset();
+  drawCrop();
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach(evt => cropStageEl.addEventListener(evt, () => { cropDragStart = null; }));
+function cancelCropBatch() {
+  cropQueue = [];
+  cropOnEach = null;
+  closeModal('crop-modal');
+}
+document.getElementById('crop-close-btn').addEventListener('click', cancelCropBatch);
+document.getElementById('crop-cancel-btn').addEventListener('click', cancelCropBatch);
+document.getElementById('crop-confirm-btn').addEventListener('click', () => {
+  const dataUrl = renderCropOutput();
+  closeModal('crop-modal');
+  if (cropOnEach) cropOnEach(dataUrl);
+  processNextCropFile();
+});
 
 // ---------- Person modal ----------
 let editingId = null;
@@ -908,19 +1239,20 @@ function openPersonModal(id) {
   renderGalleryStrip();
   document.getElementById('photo-input').value = '';
   modal.classList.add('show');
+  openLayer('modal:person-modal');
   setTimeout(() => document.getElementById('field-name').focus(), 50);
 }
 function blankAvatar() {
   return 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56"><rect width="56" height="56" fill="#0A0E12"/></svg>`);
 }
 function renderGalleryStrip() {
-  document.getElementById('photo-preview').src = pendingPhotos[0] || blankAvatar();
   const strip = document.getElementById('gallery-strip');
   strip.innerHTML = pendingPhotos.map((ph, i) => `
-    <div class="gallery-thumb" data-idx="${i}">
+    <div class="gallery-thumb${i === 0 ? ' is-primary' : ''}" data-idx="${i}">
       <img src="${ph}">
+      ${i === 0 ? '<div class="primary-badge">MAIN</div>' : ''}
       <button class="remove-thumb" data-remove="${i}" title="Remove">✕</button>
-    </div>`).join('');
+    </div>`).join('') + `<button class="gallery-add-tile" id="gallery-add-tile" title="Add photo">+</button>`;
   strip.querySelectorAll('[data-remove]').forEach(btn => btn.addEventListener('click', e => {
     e.stopPropagation();
     pendingPhotos.splice(Number(btn.dataset.remove), 1);
@@ -933,25 +1265,22 @@ function renderGalleryStrip() {
     pendingPhotos.unshift(chosen);
     renderGalleryStrip();
   }));
+  document.getElementById('gallery-add-tile').addEventListener('click', () => document.getElementById('photo-input').click());
 }
 
 document.getElementById('add-person-btn').addEventListener('click', () => openPersonModal(null));
 document.getElementById('photo-input').addEventListener('change', e => {
-  const files = Array.from(e.target.files || []);
-  if (!files.length) return;
-  Promise.all(files.map(file => new Promise(resolve => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.readAsDataURL(file);
-  }))).then(results => {
-    pendingPhotos.push(...results);
-    renderGalleryStrip();
-  });
+  queuePhotoFiles(e.target.files, dataUrl => { pendingPhotos.push(dataUrl); renderGalleryStrip(); });
+  e.target.value = '';
 });
 
 document.getElementById('save-person-btn').addEventListener('click', async () => {
   const name = document.getElementById('field-name').value.trim();
   if (!name) { showToast('Name is required.'); return; }
+  if (!editingId) {
+    const dupe = peopleInFolder().some(p => p.name.toLowerCase() === name.toLowerCase());
+    if (dupe && !confirm(`A person named "${name}" already exists in this folder. Add anyway?`)) return;
+  }
   const tags = document.getElementById('field-tags').value.split(',').map(t => t.trim()).filter(Boolean);
   const notes = document.getElementById('field-notes').value.trim();
   const priv = document.getElementById('field-private').value.trim();
@@ -1041,6 +1370,7 @@ function openLinkModal(aId, bId) {
   document.getElementById('link-type').value = 'other';
   document.getElementById('link-label').value = '';
   modal.classList.add('show');
+  openLayer('modal:link-modal');
 }
 document.getElementById('save-link-btn').addEventListener('click', async () => {
   const a = document.getElementById('link-a').value;
@@ -1076,6 +1406,7 @@ document.getElementById('path-btn').addEventListener('click', () => {
   document.getElementById('path-b').innerHTML = options;
   document.getElementById('path-result').innerHTML = '';
   document.getElementById('path-modal').classList.add('show');
+  openLayer('modal:path-modal');
 });
 document.getElementById('path-find-btn').addEventListener('click', () => {
   const a = document.getElementById('path-a').value;
@@ -1129,7 +1460,11 @@ document.getElementById('path-find-btn').addEventListener('click', () => {
 
 // ---------- Modal helpers ----------
 document.querySelectorAll('[data-close]').forEach(btn => btn.addEventListener('click', () => closeModal(btn.dataset.close)));
-function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (!el || !el.classList.contains('show')) return;
+  requestBack();
+}
 
 // ---------- Export / Import ----------
 document.getElementById('export-btn').addEventListener('click', () => {
@@ -1167,8 +1502,13 @@ document.getElementById('import-file-input').addEventListener('change', async e 
 });
 
 // ---------- Wipe all data ----------
-document.getElementById('wipe-btn').addEventListener('click', async () => {
-  if (!confirm('This permanently erases every folder, person, and connection on this device. This cannot be undone. Continue?')) return;
+document.getElementById('wipe-btn').addEventListener('click', () => {
+  document.getElementById('wipe-confirm-input').value = '';
+  document.getElementById('wipe-confirm-wrap').style.display = 'block';
+});
+document.getElementById('wipe-confirm-btn').addEventListener('click', async () => {
+  const typed = document.getElementById('wipe-confirm-input').value.trim();
+  if (typed !== 'WIPE') { showToast('Type WIPE exactly to confirm.'); return; }
   await clearStore('people'); await clearStore('links'); await clearStore('folders');
   localStorage.removeItem('a404_recent');
   localStorage.removeItem('a404_active_folder');
@@ -1177,12 +1517,37 @@ document.getElementById('wipe-btn').addEventListener('click', async () => {
   await ensureFolders();
   renderFolderSwitch();
   refreshSidebar(); renderLegend(); renderRecent(); updateCounts(); updateEmptyState();
+  document.getElementById('wipe-confirm-wrap').style.display = 'none';
   closeModal('settings-modal');
   showToast('All data wiped.');
 });
+async function reportStorageUsage() {
+  const el = document.getElementById('storage-usage');
+  if (!navigator.storage || !navigator.storage.estimate) { el.textContent = 'Unavailable'; return; }
+  try {
+    const est = await navigator.storage.estimate();
+    const usedMB = (est.usage / 1048576).toFixed(1);
+    el.textContent = est.quota ? `${usedMB} MB of ${(est.quota / 1048576 / 1024).toFixed(1)} GB` : `${usedMB} MB`;
+  } catch { el.textContent = 'Unavailable'; }
+}
 
 // ---------- Mobile sidebar ----------
-document.getElementById('menu-btn').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('open'));
+function openSidebar() {
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebar-scrim').classList.add('show');
+  document.getElementById('menu-btn').classList.add('is-open');
+  openLayer('sidebar');
+}
+function closeSidebar() {
+  if (!document.getElementById('sidebar').classList.contains('open')) return;
+  requestBack();
+}
+document.getElementById('menu-btn').addEventListener('click', () => {
+  if (document.getElementById('sidebar').classList.contains('open')) closeSidebar();
+  else openSidebar();
+});
+document.getElementById('sidebar-scrim').addEventListener('click', closeSidebar);
+document.getElementById('sidebar-close-btn').addEventListener('click', closeSidebar);
 
 // ---------- Toast ----------
 let toastTimer;
@@ -1222,7 +1587,10 @@ function updatePinButton() {
 }
 document.getElementById('settings-btn').addEventListener('click', () => {
   updatePinButton();
+  document.getElementById('wipe-confirm-wrap').style.display = 'none';
+  reportStorageUsage();
   document.getElementById('settings-modal').classList.add('show');
+  openLayer('modal:settings-modal');
 });
 document.getElementById('pin-toggle-btn').addEventListener('click', () => {
   if (isPinSet()) {
@@ -1295,12 +1663,14 @@ function renderWhatsNew() {
 document.getElementById('version-tag').addEventListener('click', () => {
   renderWhatsNew();
   document.getElementById('whatsnew-modal').classList.add('show');
+  openLayer('modal:whatsnew-modal');
 });
 function maybeShowWhatsNewOnBoot() {
   const seen = localStorage.getItem('a404_seen_version');
   if (seen !== APP_VERSION) {
     renderWhatsNew();
     document.getElementById('whatsnew-modal').classList.add('show');
+    openLayer('modal:whatsnew-modal');
     localStorage.setItem('a404_seen_version', APP_VERSION);
   }
 }
@@ -1311,7 +1681,7 @@ window.addEventListener('keydown', e => {
   const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault();
-    if (window.innerWidth <= 760) document.getElementById('sidebar').classList.add('open');
+    if (window.innerWidth <= 760 && !document.getElementById('sidebar').classList.contains('open')) openSidebar();
     document.getElementById('search').focus();
     return;
   }
@@ -1321,8 +1691,7 @@ window.addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'Escape') {
-    document.querySelectorAll('.modal-scrim.show').forEach(m => m.classList.remove('show'));
-    if (selectedId) closeDetail();
+    requestBack();
     if (linkMode) exitLinkMode();
     if (highlightPath) highlightPath = null;
   }
@@ -1392,5 +1761,11 @@ function runBootSequence() {
 })();
 
 if ('serviceWorker' in navigator) {
+  let swRefreshed = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (swRefreshed) return;
+    swRefreshed = true;
+    window.location.reload();
+  });
   window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
 }
