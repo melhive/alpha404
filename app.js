@@ -1,8 +1,19 @@
 /* Alpha404 — offline relationship graph
    No camera access. No image matching. No facial recognition of any kind. */
 
-const APP_VERSION = '1.8.1';
+const APP_VERSION = '1.9.0';
 const CHANGELOG = [
+  {
+    version: '1.9.0',
+    items: [
+      'Target lock-on animation — tapping a person now snaps converging brackets and a scan sweep onto them (with a magenta-to-cyan flash) before their detail view opens',
+      'Detail view redesigned as a "personnel file" — a brief scanning/glitch reveal, a typewriter name effect, a classification stamp, and a hexagonal photo frame with a scanning-line overlay',
+      'Graph nodes now use hexagonal tactical badges instead of plain circles',
+      'A second hard accent color (magenta) reserved for classification stamps and lock-on flashes, so warnings/highlights read as deliberate, not just more teal',
+      'A live "SECURE" status indicator in the toolbar next to the node/link counters',
+      'Chromatic-aberration glitch effect on the boot logo'
+    ]
+  },
   {
     version: '1.8.1',
     items: [
@@ -176,6 +187,7 @@ let links = [];
 let folders = [];
 let activeFolderId = null;
 let selectedId = null;
+let selectedAt = 0;
 let linkMode = false;
 let linkModeFirst = null;
 let hiddenTypes = new Set(JSON.parse(localStorage.getItem('a404_hidden_types') || '[]'));
@@ -661,34 +673,71 @@ function draw(now) {
     const isPathHi = highlightPath && highlightPath.nodeIds.has(p.id);
 
     if (p.id === selectedId) {
-      const pulse = 3 + Math.sin(now / 260) * 2;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, baseR + 6 + pulse, 0, Math.PI * 2);
-      ctx.strokeStyle = hexToRgba(cyan, 0.3 + 0.12 * Math.sin(now / 260));
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-
-      ctx.save();
-      ctx.translate(s.x, s.y);
-      ctx.rotate((now / 4000) % (Math.PI * 2));
-      ctx.beginPath();
-      ctx.setLineDash([5, 6]);
-      ctx.arc(0, 0, baseR + 11, 0, Math.PI * 2);
-      ctx.strokeStyle = hexToRgba(cyan, 0.55);
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.setLineDash([]);
-      for (let k = 0; k < 4; k++) {
-        const ang = (Math.PI / 2) * k;
-        const r1 = baseR + 14, r2 = baseR + 18;
+      const accent2 = cs.getPropertyValue('--accent2').trim() || '#FF3B7C';
+      const sinceSelect = Date.now() - selectedAt;
+      if (sinceSelect < 450) {
+        const t = Math.min(1, sinceSelect / 450);
+        const e = 1 - Math.pow(1 - t, 3);
+        const spread = 30 * (1 - e);
+        const gap = 3 + e * 8;
+        const armLen = 9 + e * 3;
+        const flashColor = t < 0.6 ? accent2 : cyan;
+        ctx.strokeStyle = flashColor;
+        ctx.lineWidth = 2;
+        for (let k = 0; k < 4; k++) {
+          const ang = (Math.PI / 2) * k + Math.PI / 4;
+          const cx2 = Math.cos(ang) * (baseR + gap + spread), cy2 = Math.sin(ang) * (baseR + gap + spread);
+          ctx.save();
+          ctx.translate(s.x + cx2, s.y + cy2);
+          ctx.rotate(ang + Math.PI);
+          ctx.beginPath();
+          ctx.moveTo(-armLen, -armLen); ctx.lineTo(0, -armLen); ctx.lineTo(0, 0); ctx.lineTo(-armLen, 0);
+          ctx.stroke();
+          ctx.restore();
+        }
+        if (t < 0.85) {
+          const sweepY = s.y - baseR + (baseR * 2) * (t / 0.85);
+          ctx.save();
+          hexPathTrace(ctx, s.x, s.y, baseR + 2);
+          ctx.clip();
+          ctx.strokeStyle = hexToRgba(flashColor, 0.9);
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(s.x - baseR - 4, sweepY);
+          ctx.lineTo(s.x + baseR + 4, sweepY);
+          ctx.stroke();
+          ctx.restore();
+        }
+      } else {
+        const pulse = 3 + Math.sin(now / 260) * 2;
         ctx.beginPath();
-        ctx.moveTo(Math.cos(ang) * r1, Math.sin(ang) * r1);
-        ctx.lineTo(Math.cos(ang) * r2, Math.sin(ang) * r2);
-        ctx.strokeStyle = hexToRgba(cyan, 0.7);
-        ctx.lineWidth = 1.4;
+        ctx.arc(s.x, s.y, baseR + 6 + pulse, 0, Math.PI * 2);
+        ctx.strokeStyle = hexToRgba(cyan, 0.3 + 0.12 * Math.sin(now / 260));
+        ctx.lineWidth = 1.2;
         ctx.stroke();
+
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.rotate((now / 4000) % (Math.PI * 2));
+        ctx.beginPath();
+        ctx.setLineDash([5, 6]);
+        ctx.arc(0, 0, baseR + 11, 0, Math.PI * 2);
+        ctx.strokeStyle = hexToRgba(cyan, 0.55);
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        for (let k = 0; k < 4; k++) {
+          const ang = (Math.PI / 2) * k;
+          const r1 = baseR + 14, r2 = baseR + 18;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(ang) * r1, Math.sin(ang) * r1);
+          ctx.lineTo(Math.cos(ang) * r2, Math.sin(ang) * r2);
+          ctx.strokeStyle = hexToRgba(cyan, 0.7);
+          ctx.lineWidth = 1.4;
+          ctx.stroke();
+        }
+        ctx.restore();
       }
-      ctx.restore();
     } else if (isPathHi) {
       ctx.beginPath();
       ctx.arc(s.x, s.y, baseR + 6, 0, Math.PI * 2);
@@ -703,15 +752,13 @@ function draw(now) {
       ctx.stroke();
     }
 
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, baseR, 0, Math.PI * 2);
+    hexPathTrace(ctx, s.x, s.y, baseR);
     if (p.photoImg) {
       ctx.save();
       ctx.clip();
       ctx.drawImage(p.photoImg, s.x - baseR, s.y - baseR, baseR * 2, baseR * 2);
       ctx.restore();
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, baseR, 0, Math.PI * 2);
+      hexPathTrace(ctx, s.x, s.y, baseR);
       ctx.strokeStyle = lineColor;
       ctx.lineWidth = 1;
       ctx.stroke();
@@ -744,6 +791,16 @@ function draw(now) {
   }
   ctx.globalAlpha = 1;
   ctx.restore();
+}
+function hexPathTrace(ctx, cx, cy, r) {
+  ctx.beginPath();
+  for (let k = 0; k < 6; k++) {
+    const ang = (Math.PI / 3) * k;
+    const x = cx + r * Math.cos(ang);
+    const y = cy + r * Math.sin(ang);
+    if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
 }
 function hexToRgba(hex, alpha) {
   hex = hex.replace('#', '');
@@ -963,9 +1020,36 @@ function escapeHtml(s) {
 }
 
 // ---------- Detail panel ----------
+function runDetailRevealFx(name) {
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const overlay = document.getElementById('detail-scan-overlay');
+  const nameEl = document.getElementById('detail-name-text');
+  if (reduced) {
+    if (overlay) overlay.remove();
+    if (nameEl) nameEl.textContent = name;
+    return;
+  }
+  const revealAt = 380;
+  setTimeout(() => {
+    if (!overlay) return;
+    overlay.classList.add('fade-out');
+    setTimeout(() => overlay.remove(), 280);
+  }, revealAt);
+  setTimeout(() => {
+    if (!nameEl) return;
+    let i = 0;
+    const perChar = Math.max(11, 260 / Math.max(name.length, 1));
+    const timer = setInterval(() => {
+      i++;
+      nameEl.textContent = name.slice(0, i);
+      if (i >= name.length) clearInterval(timer);
+    }, perChar);
+  }, revealAt + 60);
+}
 function openDetail(id, andCenter) {
   const wasOpen = document.getElementById('detail').classList.contains('open');
   selectedId = id;
+  selectedAt = Date.now();
   const p = people.find(p => p.id === id);
   if (!p) return;
   if (andCenter) centerOnNode(p);
@@ -983,17 +1067,28 @@ function openDetail(id, andCenter) {
     p.birthday ? `<span>🎂 ${escapeHtml(p.birthday)}</span>` : ''
   ].filter(Boolean).join('<span class="dot-sep"> · </span>');
 
+  let delayMs = 40;
+  const nextDelay = () => { delayMs += 65; return delayMs; };
+
   detail.innerHTML = `
-    <div class="detail-head">
+    <div class="detail-scan-overlay" id="detail-scan-overlay">
+      <div class="scan-line"></div>
+      <div class="scan-text mono">ACCESSING RECORD…</div>
+    </div>
+    <div class="detail-head" style="animation-delay:${nextDelay()}ms">
       <button class="close-btn" id="detail-close">✕</button>
-      ${p.photo ? `<img class="detail-photo" src="${p.photo}">` : `<div class="detail-photo">${initials(p.name)}</div>`}
-      <div class="detail-name">${escapeHtml(p.name)}</div>
+      <div class="classification-row mono"><span class="status-dot"></span> PERSONNEL FILE · STATUS: ${p.pinned ? 'LOCKED' : 'ACTIVE'}</div>
+      <div class="hex-photo-frame">
+        ${p.photo ? `<img class="detail-photo" src="${p.photo}">` : `<div class="detail-photo">${initials(p.name)}</div>`}
+        <div class="hex-scan-sweep"></div>
+      </div>
+      <div class="detail-name"><span id="detail-name-text"></span></div>
       <div class="detail-record-id mono">REC· ${recordId(p.id)}</div>
       ${contactBits ? `<div class="detail-meta">${contactBits}</div>` : ''}
       <div>${(p.tags || []).map(t => `<span class="tag-chip">${escapeHtml(t)}</span>`).join('')}</div>
       <div class="detail-meta mono">Added ${fmtDate(p.createdAt)} · Updated ${fmtDate(p.updatedAt)}</div>
     </div>
-    <div class="detail-section">
+    <div class="detail-section" style="animation-delay:${nextDelay()}ms">
       <h4>Photos</h4>
       <div class="gallery-strip">
         ${(p.photos || []).map((ph, i) => `
@@ -1004,13 +1099,13 @@ function openDetail(id, andCenter) {
         <button class="gallery-add-tile" id="detail-add-photo-tile" title="Add photo">+</button>
       </div>
     </div>
-    ${p.notes ? `<div class="detail-section"><h4>Notes</h4><div class="notes-text">${escapeHtml(p.notes)}</div></div>` : ''}
+    ${p.notes ? `<div class="detail-section" style="animation-delay:${nextDelay()}ms"><h4>Notes</h4><div class="notes-text">${escapeHtml(p.notes)}</div></div>` : ''}
     ${p.private ? `
-      <div class="detail-section" id="detail-section-private">
+      <div class="detail-section" id="detail-section-private" style="animation-delay:${nextDelay()}ms">
         <div class="private-toggle" id="private-toggle"><h4 style="margin:0">Confidential Information</h4><span class="reveal-hint">click to reveal</span></div>
         <div class="notes-text private-body" id="private-body">${escapeHtml(p.private)}</div>
       </div>` : ''}
-    <div class="detail-section">
+    <div class="detail-section" style="animation-delay:${nextDelay()}ms">
       <h4>Connections (${conns.length})</h4>
       ${conns.length ? conns.map(c => `
         <div class="conn-row" data-goto="${c.other.id}">
@@ -1021,13 +1116,13 @@ function openDetail(id, andCenter) {
           <button class="close-btn" style="position:static;font-size:13px" data-unlink="${c.linkId}" title="Remove connection">✕</button>
         </div>`).join('') : `<div style="color:var(--muted);font-size:12.5px">No connections yet. Use Connect on the graph.</div>`}
     </div>
-    <div class="detail-section">
+    <div class="detail-section" style="animation-delay:${nextDelay()}ms">
       <h4>Activity</h4>
       ${p.activity && p.activity.length ? p.activity.slice(0, 8).map(a => `
         <div class="activity-row"><time>${fmtDateTime(a.ts)}</time><span>${escapeHtml(a.text)}</span></div>`).join('')
         : `<div style="color:var(--muted);font-size:12.5px">No activity recorded yet.</div>`}
     </div>
-    <div class="detail-actions">
+    <div class="detail-actions" style="animation-delay:${nextDelay()}ms">
       <button class="btn ghost" id="detail-edit">Edit</button>
       <button class="btn ghost" id="detail-pin">${p.pinned ? '📌 Unpin' : '📌 Pin'}</button>
       <button class="btn ghost" id="detail-print">Print</button>
@@ -1037,6 +1132,7 @@ function openDetail(id, andCenter) {
   detail.classList.add('open');
   document.getElementById('detail-scrim').classList.add('show');
   if (!wasOpen) openLayer('detail');
+  runDetailRevealFx(p.name);
 
   document.getElementById('detail-close').addEventListener('click', closeDetail);
   const pt = document.getElementById('private-toggle');
