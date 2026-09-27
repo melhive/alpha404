@@ -1,8 +1,24 @@
 /* Alpha404 — offline relationship graph
    No camera access. No image matching. No facial recognition of any kind. */
 
-const APP_VERSION = '1.10.0';
+const APP_VERSION = '1.11.1';
 const CHANGELOG = [
+  {
+    version: '1.11.1',
+    items: [
+      'Fixed a bug where tapping a person could silently fail to open their details on some Android devices — a blocked sound/vibration API was throwing an error that stopped the rest of the tap from running; sound and haptics are now fully isolated so they can never break anything else',
+      'Selecting someone now shifts them into the visible strip beside the detail panel with an animation, instead of staying centered under it — and returns to exactly where you were when you close the panel',
+      'Narrowed the mobile detail panel so a visible sliver of the graph (with the shifted node) always stays uncovered'
+    ]
+  },
+  {
+    version: '1.11.0',
+    items: [
+      'Rebuilt the personnel-file reveal as one synchronized sequence instead of several separate timers: a single scan-line now sweeps down the panel once, sections snap into focus as it passes them, and the name types itself out timed to finish exactly as the line passes it',
+      'Replaced the old opaque "ACCESSING RECORD" curtain with the passing scan-line itself, so content is revealed in the line\'s wake instead of hidden then suddenly uncovered',
+      'Added a brief "◉ RECORD ACCESSED" confirmation flash once the sweep completes'
+    ]
+  },
   {
     version: '1.10.0',
     items: [
@@ -226,6 +242,10 @@ function hideLayerVisual(name) {
     selectedId = null;
     document.getElementById('detail').classList.remove('open');
     document.getElementById('detail-scrim').classList.remove('show');
+    if (preDetailView) {
+      animateViewTo(preDetailView.x, preDetailView.y, preDetailView.scale, 450);
+      preDetailView = null;
+    }
     refreshSidebar();
   } else if (name && name.startsWith('modal:')) {
     const el = document.getElementById(name.slice(6));
@@ -259,6 +279,7 @@ let zoomAnchor = null; // {sx, sy, wx, wy} — screen point to keep fixed while 
 let dragging = null;
 let hoverId = null;
 let highlightPath = null; // {nodeIds:Set, linkIds:Set} temporary highlight from path finder
+let preDetailView = null; // camera position to restore when the detail panel closes
 
 function resizeCanvas() {
   const rect = canvas.parentElement.getBoundingClientRect();
@@ -288,6 +309,14 @@ function centerOnNode(p) {
   const rect = canvas.parentElement.getBoundingClientRect();
   const scale = Math.max(view.scale, 0.9);
   animateViewTo(rect.width / 2 - p.x * scale, rect.height / 2 - p.y * scale, scale);
+}
+function centerOnNodeForDetail(p) {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const panelEl = document.getElementById('detail');
+  const panelW = panelEl ? panelEl.getBoundingClientRect().width : 0;
+  const visibleW = Math.max(140, rect.width - panelW);
+  const scale = Math.max(view.scale, 0.9);
+  animateViewTo(visibleW / 2 - p.x * scale, rect.height / 2 - p.y * scale, scale, 480);
 }
 function stepZoom() {
   if (!zoomAnchor) { view.scale = targetScale; return; }
@@ -1043,42 +1072,52 @@ function escapeHtml(s) {
 // ---------- Detail panel ----------
 function runDetailRevealFx(name, alreadyOpen) {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const overlay = document.getElementById('detail-scan-overlay');
+  const detail = document.getElementById('detail');
+  const sweep = document.getElementById('detail-sweep');
+  const flash = document.getElementById('detail-lock-flash');
   const nameEl = document.getElementById('detail-name-text');
-  if (reduced) {
-    if (overlay) overlay.remove();
+  const blocks = Array.from(detail.querySelectorAll('.reveal-block'));
+
+  if (reduced || alreadyOpen) {
+    blocks.forEach(b => b.classList.add('revealed'));
     if (nameEl) nameEl.textContent = name;
+    if (sweep) sweep.style.display = 'none';
+    if (flash) flash.style.display = 'none';
     return;
   }
-  if (alreadyOpen) {
-    // Already navigating within an open panel — skip the full scan, just a quick type-in.
-    if (overlay) overlay.remove();
-    if (!nameEl) return;
-    let i = 0;
-    const perChar = Math.max(6, 120 / Math.max(name.length, 1));
-    const timer = setInterval(() => {
-      i++;
-      nameEl.textContent = name.slice(0, i);
-      if (i >= name.length) clearInterval(timer);
-    }, perChar);
-    return;
+
+  const total = 520;
+  const n = Math.max(1, blocks.length);
+  const nameWindow = total / n;
+  const start = performance.now();
+
+  function frame(now) {
+    const elapsed = now - start;
+    const t = Math.min(1, elapsed / total);
+
+    if (sweep) sweep.style.top = (t * 100) + '%';
+
+    const revealedCount = Math.min(n, Math.floor(t * n) + 1);
+    for (let i = 0; i < revealedCount; i++) blocks[i].classList.add('revealed');
+
+    if (nameEl) {
+      const nameFrac = Math.min(1, elapsed / nameWindow);
+      nameEl.textContent = name.slice(0, Math.round(nameFrac * name.length));
+    }
+
+    if (t < 1) {
+      requestAnimationFrame(frame);
+    } else {
+      if (nameEl) nameEl.textContent = name;
+      blocks.forEach(b => b.classList.add('revealed'));
+      if (sweep) sweep.classList.add('fade-out');
+      if (flash) {
+        flash.classList.add('show');
+        setTimeout(() => flash.classList.remove('show'), 650);
+      }
+    }
   }
-  const revealAt = 380;
-  setTimeout(() => {
-    if (!overlay) return;
-    overlay.classList.add('fade-out');
-    setTimeout(() => overlay.remove(), 280);
-  }, revealAt);
-  setTimeout(() => {
-    if (!nameEl) return;
-    let i = 0;
-    const perChar = Math.max(11, 260 / Math.max(name.length, 1));
-    const timer = setInterval(() => {
-      i++;
-      nameEl.textContent = name.slice(0, i);
-      if (i >= name.length) clearInterval(timer);
-    }, perChar);
-  }, revealAt + 60);
+  requestAnimationFrame(frame);
 }
 function openDetail(id, andCenter) {
   const wasOpen = document.getElementById('detail').classList.contains('open');
@@ -1086,7 +1125,8 @@ function openDetail(id, andCenter) {
   selectedAt = Date.now();
   const p = people.find(p => p.id === id);
   if (!p) return;
-  if (andCenter) centerOnNode(p);
+  if (!wasOpen) preDetailView = { x: view.x, y: view.y, scale: view.scale };
+  if (andCenter) centerOnNodeForDetail(p);
   if (!wasOpen) { sfxLock(); hapticTick(15); }
   pushRecent(id);
   const detail = document.getElementById('detail');
@@ -1102,15 +1142,10 @@ function openDetail(id, andCenter) {
     p.birthday ? `<span>🎂 ${escapeHtml(p.birthday)}</span>` : ''
   ].filter(Boolean).join('<span class="dot-sep"> · </span>');
 
-  let delayMs = 40;
-  const nextDelay = () => { delayMs += 65; return delayMs; };
-
   detail.innerHTML = `
-    <div class="detail-scan-overlay" id="detail-scan-overlay">
-      <div class="scan-line"></div>
-      <div class="scan-text mono">ACCESSING RECORD…</div>
-    </div>
-    <div class="detail-head" style="animation-delay:${nextDelay()}ms">
+    <div class="detail-sweep" id="detail-sweep"></div>
+    <div class="lock-flash mono" id="detail-lock-flash">◉ RECORD ACCESSED</div>
+    <div class="detail-head reveal-block">
       <button class="close-btn" id="detail-close">✕</button>
       <div class="classification-row mono"><span class="status-dot"></span> PERSONNEL FILE · STATUS: ${p.pinned ? 'LOCKED' : 'ACTIVE'}</div>
       <div class="hex-photo-frame">
@@ -1123,7 +1158,7 @@ function openDetail(id, andCenter) {
       <div>${(p.tags || []).map(t => `<span class="tag-chip">${escapeHtml(t)}</span>`).join('')}</div>
       <div class="detail-meta mono">Added ${fmtDate(p.createdAt)} · Updated ${fmtDate(p.updatedAt)}</div>
     </div>
-    <div class="detail-section" style="animation-delay:${nextDelay()}ms">
+    <div class="detail-section reveal-block">
       <h4>Photos</h4>
       <div class="gallery-strip">
         ${(p.photos || []).map((ph, i) => `
@@ -1134,13 +1169,13 @@ function openDetail(id, andCenter) {
         <button class="gallery-add-tile" id="detail-add-photo-tile" title="Add photo">+</button>
       </div>
     </div>
-    ${p.notes ? `<div class="detail-section" style="animation-delay:${nextDelay()}ms"><h4>Notes</h4><div class="notes-text">${escapeHtml(p.notes)}</div></div>` : ''}
+    ${p.notes ? `<div class="detail-section reveal-block"><h4>Notes</h4><div class="notes-text">${escapeHtml(p.notes)}</div></div>` : ''}
     ${p.private ? `
-      <div class="detail-section" id="detail-section-private" style="animation-delay:${nextDelay()}ms">
+      <div class="detail-section reveal-block" id="detail-section-private">
         <div class="private-toggle" id="private-toggle"><h4 style="margin:0">Confidential Information</h4><span class="reveal-hint">click to reveal</span></div>
         <div class="notes-text private-body" id="private-body">${escapeHtml(p.private)}</div>
       </div>` : ''}
-    <div class="detail-section" style="animation-delay:${nextDelay()}ms">
+    <div class="detail-section reveal-block">
       <h4>Connections (${conns.length})</h4>
       ${conns.length ? conns.map(c => `
         <div class="conn-row" data-goto="${c.other.id}">
@@ -1151,13 +1186,13 @@ function openDetail(id, andCenter) {
           <button class="close-btn" style="position:static;font-size:13px" data-unlink="${c.linkId}" title="Remove connection">✕</button>
         </div>`).join('') : `<div style="color:var(--muted);font-size:12.5px">No connections yet. Use Connect on the graph.</div>`}
     </div>
-    <div class="detail-section" style="animation-delay:${nextDelay()}ms">
+    <div class="detail-section reveal-block">
       <h4>Activity</h4>
       ${p.activity && p.activity.length ? p.activity.slice(0, 8).map(a => `
         <div class="activity-row"><time>${fmtDateTime(a.ts)}</time><span>${escapeHtml(a.text)}</span></div>`).join('')
         : `<div style="color:var(--muted);font-size:12.5px">No activity recorded yet.</div>`}
     </div>
-    <div class="detail-actions" style="animation-delay:${nextDelay()}ms">
+    <div class="detail-actions reveal-block">
       <button class="btn ghost" id="detail-edit">Edit</button>
       <button class="btn ghost" id="detail-pin">${p.pinned ? '📌 Unpin' : '📌 Pin'}</button>
       <button class="btn ghost" id="detail-print">Print</button>
@@ -1685,36 +1720,43 @@ document.getElementById('sidebar-close-btn').addEventListener('click', closeSide
 // ---------- Toast ----------
 let toastTimer;
 // ---------- HUD sound (synthesized, no audio files) ----------
+// Every function here is wrapped defensively: some Android WebViews/browsers
+// throw or restrict AudioContext/vibrate, and if that throws uncaught, it can
+// silently abort whatever code called it (e.g. opening the detail panel).
 let audioCtx = null;
 function getAudioCtx() {
-  if (!audioCtx) {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return null;
-    audioCtx = new AC();
-  }
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  return audioCtx;
+  try {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      audioCtx = new AC();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  } catch { return null; }
 }
 function playBlip(freq, duration, type = 'square', vol = 0.05) {
-  if (localStorage.getItem('a404_sound') === 'off') return;
-  const ctxA = getAudioCtx();
-  if (!ctxA) return;
-  const osc = ctxA.createOscillator();
-  const gain = ctxA.createGain();
-  osc.type = type;
-  osc.frequency.value = freq;
-  gain.gain.setValueAtTime(vol, ctxA.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.0001, ctxA.currentTime + duration);
-  osc.connect(gain);
-  gain.connect(ctxA.destination);
-  osc.start();
-  osc.stop(ctxA.currentTime + duration);
+  try {
+    if (localStorage.getItem('a404_sound') === 'off') return;
+    const ctxA = getAudioCtx();
+    if (!ctxA) return;
+    const osc = ctxA.createOscillator();
+    const gain = ctxA.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, ctxA.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctxA.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(ctxA.destination);
+    osc.start();
+    osc.stop(ctxA.currentTime + duration);
+  } catch { /* sound is a nice-to-have; never let it break the app */ }
 }
 function sfxSelect() { playBlip(880, 0.06, 'square', 0.045); }
 function sfxLock() { playBlip(1400, 0.09, 'square', 0.05); setTimeout(() => playBlip(1800, 0.06, 'square', 0.04), 70); }
 function sfxConnect() { playBlip(660, 0.05, 'sine', 0.05); setTimeout(() => playBlip(990, 0.08, 'sine', 0.05), 60); }
 function sfxDelete() { playBlip(220, 0.14, 'sawtooth', 0.05); }
-function hapticTick(ms) { if (navigator.vibrate) navigator.vibrate(ms); }
+function hapticTick(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch { /* ignore */ } }
 
 function showToast(msg, action) {
   const el = document.getElementById('toast');
