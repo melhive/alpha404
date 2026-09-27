@@ -1,8 +1,19 @@
 /* Alpha404 — offline relationship graph
    No camera access. No image matching. No facial recognition of any kind. */
 
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.10.0';
 const CHANGELOG = [
+  {
+    version: '1.10.0',
+    items: [
+      'Extended the HUD look to the rest of the app: hexagonal avatars in the sidebar, recent-viewed, and connections list (not just the graph and detail view)',
+      'Modal titles and form field labels now read as HUD/monospace readouts, matching the detail view',
+      'Relationship-type legend now shows a live count per type in a bracketed readout style',
+      'Synthesized HUD sound effects (lock-on, connect, delete) with a toggle in Settings, plus a haptic tap on lock-on',
+      'Pinned people now show a persistent amber glow outline on the graph, visible without opening them',
+      'Switching between already-open connections now uses a faster, lighter reveal instead of replaying the full scan/typewriter effect every time'
+    ]
+  },
   {
     version: '1.9.0',
     items: [
@@ -513,12 +524,14 @@ function updateEmptyState() {
 }
 function renderLegend() {
   const el = document.getElementById('legend');
-  const used = new Set(linksInFolder().map(l => l.type || 'other'));
-  if (used.size === 0) { el.innerHTML = ''; return; }
-  el.innerHTML = [...used].map(t => {
+  const counts = {};
+  linksInFolder().forEach(l => { const t = l.type || 'other'; counts[t] = (counts[t] || 0) + 1; });
+  const used = Object.keys(counts);
+  if (used.length === 0) { el.innerHTML = ''; return; }
+  el.innerHTML = used.map(t => {
     const info = LINK_TYPES[t] || LINK_TYPES.other;
     const off = hiddenTypes.has(t);
-    return `<span class="chip${off ? ' off' : ''}" data-type="${t}"><span class="dot" style="background:${info.color}"></span>${info.label}</span>`;
+    return `<span class="chip${off ? ' off' : ''}" data-type="${t}"><span class="dot" style="background:${info.color}"></span>${info.label} <b class="mono">${counts[t]}</b></span>`;
   }).join('');
   el.querySelectorAll('.chip').forEach(chip => {
     chip.addEventListener('click', () => {
@@ -618,6 +631,7 @@ function draw(now) {
   const mutedColor = cs.getPropertyValue('--muted').trim() || '#7C8A97';
   const panelColor = cs.getPropertyValue('--panel-2').trim() || '#161D25';
   const cyan = cs.getPropertyValue('--cyan').trim() || '#4FD1C5';
+  const amber = cs.getPropertyValue('--amber').trim() || '#E8A33D';
 
   ctx.strokeStyle = hexToRgba(lineColor, 0.5);
   ctx.lineWidth = 1;
@@ -749,6 +763,13 @@ function draw(now) {
       ctx.arc(s.x, s.y, baseR + 5, 0, Math.PI * 2);
       ctx.strokeStyle = hexToRgba(cyan, 0.5);
       ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+
+    if (p.pinned) {
+      hexPathTrace(ctx, s.x, s.y, baseR + 3);
+      ctx.strokeStyle = hexToRgba(amber, 0.8);
+      ctx.lineWidth = 1.5;
       ctx.stroke();
     }
 
@@ -1020,13 +1041,26 @@ function escapeHtml(s) {
 }
 
 // ---------- Detail panel ----------
-function runDetailRevealFx(name) {
+function runDetailRevealFx(name, alreadyOpen) {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const overlay = document.getElementById('detail-scan-overlay');
   const nameEl = document.getElementById('detail-name-text');
   if (reduced) {
     if (overlay) overlay.remove();
     if (nameEl) nameEl.textContent = name;
+    return;
+  }
+  if (alreadyOpen) {
+    // Already navigating within an open panel — skip the full scan, just a quick type-in.
+    if (overlay) overlay.remove();
+    if (!nameEl) return;
+    let i = 0;
+    const perChar = Math.max(6, 120 / Math.max(name.length, 1));
+    const timer = setInterval(() => {
+      i++;
+      nameEl.textContent = name.slice(0, i);
+      if (i >= name.length) clearInterval(timer);
+    }, perChar);
     return;
   }
   const revealAt = 380;
@@ -1053,6 +1087,7 @@ function openDetail(id, andCenter) {
   const p = people.find(p => p.id === id);
   if (!p) return;
   if (andCenter) centerOnNode(p);
+  if (!wasOpen) { sfxLock(); hapticTick(15); }
   pushRecent(id);
   const detail = document.getElementById('detail');
   const conns = links.filter(l => l.a === id || l.b === id).map(l => {
@@ -1132,7 +1167,7 @@ function openDetail(id, andCenter) {
   detail.classList.add('open');
   document.getElementById('detail-scrim').classList.add('show');
   if (!wasOpen) openLayer('detail');
-  runDetailRevealFx(p.name);
+  runDetailRevealFx(p.name, wasOpen);
 
   document.getElementById('detail-close').addEventListener('click', closeDetail);
   const pt = document.getElementById('private-toggle');
@@ -1427,6 +1462,7 @@ let pendingDelete = null;
 function softDeletePerson(id) {
   const p = people.find(p => p.id === id);
   if (!p) return;
+  sfxDelete();
   const removedLinks = links.filter(l => l.a === id || l.b === id);
   people = people.filter(p => p.id !== id);
   links = links.filter(l => l.a !== id && l.b !== id);
@@ -1488,6 +1524,7 @@ document.getElementById('save-link-btn').addEventListener('click', async () => {
     if (pa) { addActivity(pa, `Connected to ${pb ? pb.name : 'someone'} — ${typeLabel}`); await put('people', stripRuntime(pa)); }
     if (pb) { addActivity(pb, `Connected to ${pa ? pa.name : 'someone'} — ${typeLabel}`); await put('people', stripRuntime(pb)); }
     showToast(`Connected to ${pb ? pb.name : 'them'} — ${typeLabel}.`);
+    sfxConnect();
   }
   closeModal('link-modal');
   renderLegend();
@@ -1647,6 +1684,38 @@ document.getElementById('sidebar-close-btn').addEventListener('click', closeSide
 
 // ---------- Toast ----------
 let toastTimer;
+// ---------- HUD sound (synthesized, no audio files) ----------
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+function playBlip(freq, duration, type = 'square', vol = 0.05) {
+  if (localStorage.getItem('a404_sound') === 'off') return;
+  const ctxA = getAudioCtx();
+  if (!ctxA) return;
+  const osc = ctxA.createOscillator();
+  const gain = ctxA.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(vol, ctxA.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.0001, ctxA.currentTime + duration);
+  osc.connect(gain);
+  gain.connect(ctxA.destination);
+  osc.start();
+  osc.stop(ctxA.currentTime + duration);
+}
+function sfxSelect() { playBlip(880, 0.06, 'square', 0.045); }
+function sfxLock() { playBlip(1400, 0.09, 'square', 0.05); setTimeout(() => playBlip(1800, 0.06, 'square', 0.04), 70); }
+function sfxConnect() { playBlip(660, 0.05, 'sine', 0.05); setTimeout(() => playBlip(990, 0.08, 'sine', 0.05), 60); }
+function sfxDelete() { playBlip(220, 0.14, 'sawtooth', 0.05); }
+function hapticTick(ms) { if (navigator.vibrate) navigator.vibrate(ms); }
+
 function showToast(msg, action) {
   const el = document.getElementById('toast');
   el.innerHTML = `<span>${escapeHtml(msg)}</span>`;
@@ -1673,6 +1742,18 @@ document.getElementById('theme-toggle-btn').addEventListener('click', () => {
   applyTheme(current === 'light' ? 'dark' : 'light');
 });
 
+// ---------- Sound ----------
+function updateSoundButton() {
+  const off = localStorage.getItem('a404_sound') === 'off';
+  document.getElementById('sound-toggle-btn').textContent = off ? 'Off' : 'On';
+}
+document.getElementById('sound-toggle-btn').addEventListener('click', () => {
+  const off = localStorage.getItem('a404_sound') === 'off';
+  localStorage.setItem('a404_sound', off ? 'on' : 'off');
+  updateSoundButton();
+  if (off) { getAudioCtx(); playBlip(880, 0.06, 'square', 0.045); }
+});
+
 // ---------- Settings / PIN lock / auto-lock ----------
 function isPinSet() { return !!localStorage.getItem('a404_pin_hash'); }
 function updatePinButton() {
@@ -1683,6 +1764,7 @@ function updatePinButton() {
 }
 document.getElementById('settings-btn').addEventListener('click', () => {
   updatePinButton();
+  updateSoundButton();
   document.getElementById('wipe-confirm-wrap').style.display = 'none';
   reportStorageUsage();
   document.getElementById('settings-modal').classList.add('show');

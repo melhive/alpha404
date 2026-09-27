@@ -313,9 +313,8 @@ body::after {
 
 .avatar {
   width: 30px; height: 30px;
-  border-radius: 50%;
+  clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0% 50%);
   background: var(--bg);
-  border: 1px solid var(--line);
   object-fit: cover;
   flex-shrink: 0;
   display: flex;
@@ -323,6 +322,7 @@ body::after {
   justify-content: center;
   font-size: 11px;
   color: var(--muted);
+  filter: drop-shadow(0 0 0.6px var(--line)) drop-shadow(0 0 0.6px var(--line));
 }
 
 .person-row .name { font-size: 13px; }
@@ -331,15 +331,25 @@ body::after {
 .legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   padding: 10px 16px;
   border-top: 1px solid var(--line);
   font-size: 10.5px;
   color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .legend .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
-.legend .chip { cursor: pointer; padding: 2px 6px; border-radius: var(--radius); border: 1px solid transparent; }
+.legend .chip {
+  cursor: pointer;
+  padding: 3px 7px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  display: inline-flex; align-items: center;
+}
+.legend .chip b { margin-left: 6px; color: var(--cyan); font-weight: 600; }
 .legend .chip.off { opacity: 0.35; }
+.legend .chip.off b { color: var(--muted); }
 
 .recent-wrap { padding: 10px 16px 4px; border-bottom: 1px solid var(--line); }
 .recent-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 8px; }
@@ -348,7 +358,6 @@ body::after {
 
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-.field-label { font-size: 12px; color: var(--muted); }
 .gallery-strip { display: flex; gap: 8px; flex-wrap: wrap; }
 .gallery-thumb { position: relative; width: 56px; height: 56px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); }
 .gallery-thumb.is-primary { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan); }
@@ -812,11 +821,28 @@ canvas#graph.dragging { cursor: grabbing; }
   justify-content: space-between;
   align-items: center;
 }
-.modal-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.modal-head h3 {
+  margin: 0; font-size: 13px; font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text);
+  padding-left: 10px;
+  border-left: 2px solid var(--cyan);
+}
 .modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
 .modal-foot { padding: 14px 20px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; }
 
-label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
+label.field {
+  display: flex; flex-direction: column; gap: 6px;
+  font-size: 10.5px; color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.field-label {
+  font-size: 10.5px; color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
 .field-meta { font-size: 10.5px; color: var(--muted); }
 input[type=text], input[type=search], input[type=password], textarea, select {
   background: var(--bg);
