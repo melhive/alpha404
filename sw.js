@@ -1,4 +1,4 @@
-const CACHE_NAME = 'alpha404-v1.11.1';
+const CACHE_NAME = 'alpha404-v1.11.2';
 const SHELL_FILES = [
   './',
   './index.html',

@@ -1,8 +1,14 @@
 /* Alpha404 — offline relationship graph
    No camera access. No image matching. No facial recognition of any kind. */
 
-const APP_VERSION = '1.11.1';
+const APP_VERSION = '1.11.2';
 const CHANGELOG = [
+  {
+    version: '1.11.2',
+    items: [
+      'Fixed single taps on a person often not opening their details on touchscreens — any tiny finger tremor during a tap was being misread as a drag; taps now need to move more than a small threshold before they count as dragging, matching how a mouse click already behaved'
+    ]
+  },
   {
     version: '1.11.1',
     items: [
@@ -890,10 +896,11 @@ canvas.addEventListener('mousedown', e => {
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
   const node = nodeAt(sx, sy);
-  if (node) dragging = { type: 'node', id: node.id, moved: false };
+  if (node) dragging = { type: 'node', id: node.id, moved: false, sx0: sx, sy0: sy };
   else dragging = { type: 'pan', startX: e.clientX, startY: e.clientY, ox: view.x, oy: view.y };
   canvas.classList.add('dragging');
 });
+const TAP_MOVE_THRESHOLD = 8; // px — below this, a touch/click is a tap, not a drag
 window.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
@@ -905,7 +912,7 @@ window.addEventListener('mousemove', e => {
   }
   viewAnim = null;
   if (dragging.type === 'node') {
-    dragging.moved = true;
+    if (Math.hypot(sx - dragging.sx0, sy - dragging.sy0) > TAP_MOVE_THRESHOLD) dragging.moved = true;
     const w = screenToWorld(sx, sy);
     const p = people.find(p => p.id === dragging.id);
     if (p) { p.x = w.x; p.y = w.y; }
@@ -952,7 +959,7 @@ canvas.addEventListener('touchstart', e => {
   const rect = canvas.getBoundingClientRect();
   const sx = t.clientX - rect.left, sy = t.clientY - rect.top;
   const node = nodeAt(sx, sy);
-  if (node) dragging = { type: 'node', id: node.id, moved: false };
+  if (node) dragging = { type: 'node', id: node.id, moved: false, sx0: sx, sy0: sy };
   else dragging = { type: 'pan', startX: t.clientX, startY: t.clientY, ox: view.x, oy: view.y };
 }, { passive: true });
 canvas.addEventListener('touchmove', e => {
@@ -968,8 +975,9 @@ canvas.addEventListener('touchmove', e => {
   const t = e.touches[0];
   const rect = canvas.getBoundingClientRect();
   if (dragging.type === 'node') {
-    dragging.moved = true;
-    const w = screenToWorld(t.clientX - rect.left, t.clientY - rect.top);
+    const sx = t.clientX - rect.left, sy = t.clientY - rect.top;
+    if (Math.hypot(sx - dragging.sx0, sy - dragging.sy0) > TAP_MOVE_THRESHOLD) dragging.moved = true;
+    const w = screenToWorld(sx, sy);
     const p = people.find(p => p.id === dragging.id);
     if (p) { p.x = w.x; p.y = w.y; }
   } else {
