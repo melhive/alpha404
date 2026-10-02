@@ -78,7 +78,7 @@
       <h2>No one mapped yet</h2>
       <p>Add the first person to start building the graph. Everything stays on this device.</p>
     </div>
-    <button class="version-tag mono" id="version-tag">v1.11.2 · what's new</button>
+    <button class="version-tag mono" id="version-tag">v1.12.1 · what's new</button>
   </main>
 </div>
 
@@ -308,6 +308,16 @@
 
 <input type="file" id="import-file-input" accept="application/json" style="display:none">
 <input type="file" id="detail-photo-input" accept="image/*" multiple style="display:none">
+
+<!-- Photo viewer (lightbox) -->
+<div class="modal-scrim photo-viewer-scrim" id="photo-viewer-modal">
+  <button class="close-btn photo-viewer-close" id="photo-viewer-close">✕</button>
+  <button class="photo-viewer-nav prev" id="photo-viewer-prev" aria-label="Previous photo">‹</button>
+  <img id="photo-viewer-img" alt="">
+  <button class="photo-viewer-nav next" id="photo-viewer-next" aria-label="Next photo">›</button>
+  <div class="photo-viewer-counter mono" id="photo-viewer-counter"></div>
+</div>
+
 <div id="toast"></div>
 
 <script src="app.js"></script>

@@ -25,6 +25,12 @@ Everything is stored locally in IndexedDB in your browser. Clearing site data/ca
 Alpha404 now organizes people into folders, CherryTree-style: each folder is a completely separate graph. People, connections, and the legend all scope to whichever folder is active — nothing in "Work" shows up while you're in "Family," and vice versa. Use the 📁 button at the top of the sidebar to switch folders, create new ones, rename them, or delete one (which also deletes everyone and every connection inside it). If the same real person belongs in two folders, add them separately in each — they're independent entries by design, matching how CherryTree containers work.
 
 ## Version
+v1.12.1 — strengthened the ghost-click fix from 1.11.3: default touch handling is now suppressed from the start of a tap/drag, not just at release, for mobile browsers that need it blocked earlier.
+
+v1.12.0 — photo thumbnails in a person's Photos section are now tappable: opens a full-size viewer with prev/next navigation (arrow keys work too) and a close button/tap-outside-to-close. Previously those thumbnails did nothing when tapped.
+
+v1.11.3 — fixed the actual cause of taps not opening a person on phones: mobile browsers fire a synthetic "ghost" mouse click after a touch ends, and it was landing on the detail panel's backdrop, instantly closing what the tap just opened. That ghost click is now suppressed, plus a backup guard ignores any backdrop click in the instant right after opening.
+
 v1.11.2 — fixed single taps on a person often failing to open their details on touchscreens: any tiny finger tremor during a tap was immediately counted as a drag (mice don't produce this jitter, which is why it worked fine with a mouse click). Taps now need to move more than a small threshold before they're treated as a drag.
 
 v1.11.1 — fixed a bug where tapping a person could silently fail to open their details on some Android devices (a blocked sound/vibration call was throwing an uncaught error that stopped the rest of the tap handler from running; all sound/haptic code is now exception-proof). Also: selecting someone now animates them into the visible strip beside the detail panel instead of staying centered underneath it, and the camera returns to exactly where it was when you close the panel; narrowed the mobile detail panel so that strip is always visible.

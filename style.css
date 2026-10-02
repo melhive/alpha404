@@ -376,6 +376,7 @@ body::after {
   font-size: 22px;
   background: transparent;
 }
+.gallery-thumb.viewable { cursor: pointer; }
 .gallery-add-tile:active { border-color: var(--cyan); color: var(--cyan); }
 @media (hover: hover) and (pointer: fine) {
   .gallery-add-tile:hover { border-color: var(--cyan); color: var(--cyan); }
@@ -900,6 +901,51 @@ input:focus, textarea:focus, select:focus { border-color: var(--cyan); }
 #whatsnew-body h4 { margin: 0 0 4px; font-size: 12.5px; color: var(--cyan); }
 #whatsnew-body ul { margin: 0 0 14px; padding-left: 18px; font-size: 12.5px; color: var(--text); }
 
+.photo-viewer-scrim {
+  flex-direction: column;
+  background: rgba(4,6,8,0.94);
+  z-index: 50;
+}
+.photo-viewer-scrim img {
+  max-width: 90vw;
+  max-height: 78vh;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  box-shadow: 0 0 40px rgba(79,209,197,0.15);
+}
+.photo-viewer-close {
+  position: absolute;
+  top: 18px; right: 18px;
+  font-size: 22px;
+  color: var(--text);
+  z-index: 2;
+}
+.photo-viewer-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(18,24,31,0.75);
+  border: 1px solid var(--line);
+  color: var(--text);
+  width: 44px; height: 44px;
+  font-size: 26px;
+  line-height: 1;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+.photo-viewer-nav.prev { left: 14px; }
+.photo-viewer-nav.next { right: 14px; }
+.photo-viewer-nav:disabled { opacity: 0.25; pointer-events: none; }
+.photo-viewer-counter {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+
 #toast {
   position: fixed;
   bottom: 20px;
@@ -1007,4 +1053,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--cyan); }
   .close-btn:hover { color: var(--text); }
   .sidebar-close:hover { color: var(--text); border-color: var(--cyan); }
   #menu-btn:hover { border-color: var(--cyan); }
+  .gallery-thumb.viewable:hover { border-color: var(--cyan); }
+  .photo-viewer-nav:hover { border-color: var(--cyan); color: var(--cyan); }
 }

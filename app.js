@@ -1,8 +1,26 @@
 /* Alpha404 — offline relationship graph
    No camera access. No image matching. No facial recognition of any kind. */
 
-const APP_VERSION = '1.11.2';
+const APP_VERSION = '1.12.1';
 const CHANGELOG = [
+  {
+    version: '1.12.1',
+    items: [
+      'Strengthened the ghost-click fix from 1.11.3 — default touch handling is now suppressed from the very start of a tap/drag (not just at release), for mobile browsers that need it blocked earlier to fully stop the synthetic follow-up click'
+    ]
+  },
+  {
+    version: '1.12.0',
+    items: [
+      'Tapping a photo in someone\'s Photos section now opens it full-size, with prev/next navigation between their other photos — previously the thumbnails there weren\'t clickable at all'
+    ]
+  },
+  {
+    version: '1.11.3',
+    items: [
+      'Fixed the real cause of taps not opening a person on phones: mobile browsers fire a synthetic follow-up mouse click after a touch, which was landing on the panel\'s backdrop and instantly closing what the tap just opened. That ghost click is now suppressed, with a backup guard that ignores any backdrop click in the instant after opening.'
+    ]
+  },
   {
     version: '1.11.2',
     items: [
@@ -221,6 +239,7 @@ let folders = [];
 let activeFolderId = null;
 let selectedId = null;
 let selectedAt = 0;
+let detailOpenedAt = 0;
 let linkMode = false;
 let linkModeFirst = null;
 let hiddenTypes = new Set(JSON.parse(localStorage.getItem('a404_hidden_types') || '[]'));
@@ -940,6 +959,7 @@ function touchDist(t0, t1) { return Math.hypot(t1.clientX - t0.clientX, t1.clien
 
 canvas.addEventListener('touchstart', e => {
   markActivity();
+  if (e.cancelable) e.preventDefault();
   if (e.touches.length === 2) {
     dragging = null;
     viewAnim = null;
@@ -961,8 +981,9 @@ canvas.addEventListener('touchstart', e => {
   const node = nodeAt(sx, sy);
   if (node) dragging = { type: 'node', id: node.id, moved: false, sx0: sx, sy0: sy };
   else dragging = { type: 'pan', startX: t.clientX, startY: t.clientY, ox: view.x, oy: view.y };
-}, { passive: true });
+}, { passive: false });
 canvas.addEventListener('touchmove', e => {
+  if (e.cancelable) e.preventDefault();
   if (e.touches.length === 2 && pinch) {
     const [t0, t1] = e.touches;
     const dist = touchDist(t0, t1);
@@ -984,12 +1005,18 @@ canvas.addEventListener('touchmove', e => {
     view.x = dragging.ox + (t.clientX - dragging.startX);
     view.y = dragging.oy + (t.clientY - dragging.startY);
   }
-}, { passive: true });
+}, { passive: false });
 canvas.addEventListener('touchend', e => {
   if (e.touches.length < 2) pinch = null;
-  if (dragging && dragging.type === 'node' && !dragging.moved) handleNodeClick(dragging.id);
+  const wasTap = dragging && dragging.type === 'node' && !dragging.moved;
+  if (wasTap) handleNodeClick(dragging.id);
   dragging = null;
+  // Prevent the browser's synthetic mouse events/click that follow a tap. Without this,
+  // the ghost click lands on whatever appeared under the finger (e.g. the panel's backdrop)
+  // and can instantly close what the tap just opened.
+  if (e.cancelable) e.preventDefault();
 });
+canvas.addEventListener('touchcancel', () => { dragging = null; pinch = null; });
 
 function handleNodeClick(id) {
   highlightPath = null;
@@ -1129,6 +1156,7 @@ function runDetailRevealFx(name, alreadyOpen) {
 }
 function openDetail(id, andCenter) {
   const wasOpen = document.getElementById('detail').classList.contains('open');
+  detailOpenedAt = Date.now();
   selectedId = id;
   selectedAt = Date.now();
   const p = people.find(p => p.id === id);
@@ -1170,7 +1198,7 @@ function openDetail(id, andCenter) {
       <h4>Photos</h4>
       <div class="gallery-strip">
         ${(p.photos || []).map((ph, i) => `
-          <div class="gallery-thumb${i === 0 ? ' is-primary' : ''}">
+          <div class="gallery-thumb viewable${i === 0 ? ' is-primary' : ''}" data-viewphoto="${i}">
             <img src="${ph}">
             ${i === 0 ? '<div class="primary-badge">MAIN</div>' : ''}
           </div>`).join('')}
@@ -1232,6 +1260,9 @@ function openDetail(id, andCenter) {
   document.getElementById('detail-print').addEventListener('click', () => window.print());
   document.getElementById('detail-delete').addEventListener('click', () => softDeletePerson(p.id));
   document.getElementById('detail-add-photo-tile').addEventListener('click', () => document.getElementById('detail-photo-input').click());
+  detail.querySelectorAll('[data-viewphoto]').forEach(thumb => thumb.addEventListener('click', () => {
+    openPhotoViewer(p.photos || [], Number(thumb.dataset.viewphoto));
+  }));
 
   refreshSidebar();
 }
@@ -1249,7 +1280,10 @@ function closeDetail() {
   if (selectedId === null) return;
   requestBack();
 }
-document.getElementById('detail-scrim').addEventListener('click', closeDetail);
+document.getElementById('detail-scrim').addEventListener('click', () => {
+  if (Date.now() - detailOpenedAt < 350) return;
+  closeDetail();
+});
 document.getElementById('detail-photo-input').addEventListener('change', e => {
   const targetId = selectedId;
   queuePhotoFiles(e.target.files, async dataUrl => {
@@ -1381,6 +1415,44 @@ document.getElementById('crop-confirm-btn').addEventListener('click', () => {
   closeModal('crop-modal');
   if (cropOnEach) cropOnEach(dataUrl);
   processNextCropFile();
+});
+
+// ---------- Photo viewer (lightbox) ----------
+let viewerPhotos = [];
+let viewerIndex = 0;
+function openPhotoViewer(photos, index) {
+  if (!photos || !photos.length) return;
+  viewerPhotos = photos;
+  viewerIndex = Math.max(0, Math.min(index, photos.length - 1));
+  renderPhotoViewer();
+  document.getElementById('photo-viewer-modal').classList.add('show');
+  openLayer('modal:photo-viewer-modal');
+}
+function renderPhotoViewer() {
+  document.getElementById('photo-viewer-img').src = viewerPhotos[viewerIndex];
+  document.getElementById('photo-viewer-counter').textContent = `${viewerIndex + 1} / ${viewerPhotos.length}`;
+  document.getElementById('photo-viewer-prev').disabled = viewerIndex <= 0;
+  document.getElementById('photo-viewer-next').disabled = viewerIndex >= viewerPhotos.length - 1;
+}
+document.getElementById('photo-viewer-prev').addEventListener('click', e => {
+  e.stopPropagation();
+  if (viewerIndex > 0) { viewerIndex--; renderPhotoViewer(); }
+});
+document.getElementById('photo-viewer-next').addEventListener('click', e => {
+  e.stopPropagation();
+  if (viewerIndex < viewerPhotos.length - 1) { viewerIndex++; renderPhotoViewer(); }
+});
+document.getElementById('photo-viewer-close').addEventListener('click', e => {
+  e.stopPropagation();
+  closeModal('photo-viewer-modal');
+});
+document.getElementById('photo-viewer-modal').addEventListener('click', e => {
+  if (e.target.id === 'photo-viewer-modal') closeModal('photo-viewer-modal');
+});
+window.addEventListener('keydown', e => {
+  if (!document.getElementById('photo-viewer-modal').classList.contains('show')) return;
+  if (e.key === 'ArrowLeft' && viewerIndex > 0) { viewerIndex--; renderPhotoViewer(); }
+  if (e.key === 'ArrowRight' && viewerIndex < viewerPhotos.length - 1) { viewerIndex++; renderPhotoViewer(); }
 });
 
 // ---------- Person modal ----------
